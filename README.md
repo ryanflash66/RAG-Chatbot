@@ -1,4 +1,4 @@
-# llamaIndexchatbot_chainlitUI
+# RAG-Chatbot
 
 A powerful document-based chatbot built with LlamaIndex and Chainlit that provides a conversational interface to your documents.
 
