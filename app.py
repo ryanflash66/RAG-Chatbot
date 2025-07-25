@@ -1,75 +1,100 @@
-from llama_index.core.callbacks import CallbackManager
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage
-from llama_index.core.settings import Settings
-from llama_index.llms.openai import OpenAI
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+"""
+RAG Chatbot for IT Support Documentation
+Main application entry point
+"""
 import chainlit as cl
-import os
-import openai
-from dotenv import load_dotenv
+from config import init_env, init_settings, setup_openai_client, get_data_dir, get_storage_dir
+from index_utils import load_or_create_index, DocumentLoadError, print_supported_file_types
 
-# Load environment vars from .env
-load_dotenv()
-
-# Use OpenRouter instead of OpenAI
-openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-if not openrouter_api_key:
-    raise ValueError("OPENROUTER_API_KEY not found in environment variables. Please check your .env file.")
-os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
-openai.api_key = openrouter_api_key
-openai.api_base = "https://openrouter.ai/api/v1"
-
-# Configure LLM to use OpenRouter - use standard OpenAI model name
-Settings.llm = OpenAI(
-    temperature=0,
-    model="gpt-4o",  # Use standard model name, not "openai/gpt-4o"
-    api_base="https://openrouter.ai/api/v1",
-    api_key=openrouter_api_key
-)
-
-# Use a local embedding model instead of OpenAI
-Settings.embed_model = HuggingFaceEmbedding(
-    model_name="BAAI/bge-small-en-v1.5"
-)
-
+# Initialize environment and configuration
 try:
-    # rebuild storage context
-    storage_context = StorageContext.from_defaults(persist_dir="./storage")
-    # load index
-    index = load_index_from_storage(storage_context)
-    print("Loaded existing index from storage.")
-except:
-    print("Creating new index from documents...")
-    # Use SimpleDirectoryReader without custom file extractors first
-    dir_reader = SimpleDirectoryReader("./data")
+    print_supported_file_types()  # Show supported file types on startup
     
-    data = dir_reader.load_data()
-    print(f"Loaded {len(data)} documents")
-    index = VectorStoreIndex.from_documents(data)
-    index.storage_context.persist()
-    print("Index created and saved to storage.")
+    OPENROUTER_API_KEY = init_env()
+    setup_openai_client(OPENROUTER_API_KEY)
+    init_settings(OPENROUTER_API_KEY)
+    
+    # Load or create the vector index
+    storage_dir = get_storage_dir()
+    data_dir = get_data_dir()
+    index = load_or_create_index(storage_dir, data_dir)
+    
+except (ValueError, DocumentLoadError) as e:
+    print(f"❌ Initialization error: {e}")
+    raise
+except Exception as e:
+    print(f"❌ Unexpected error during initialization: {e}")
+    raise
 
 
 @cl.on_chat_start
 async def factory():
-    # Configure callback manager
-    Settings.callback_manager = CallbackManager([cl.LlamaIndexCallbackHandler()])
+    """Initialize the chat session with query engine."""
+    try:
+        query_engine = index.as_query_engine(streaming=True)
+        cl.user_session.set("query_engine", query_engine)
+        
+        # Send welcome message
+        await cl.Message(
+            content="""🤖 **IT Support RAG Chatbot Ready!**
 
-    query_engine = index.as_query_engine(streaming=True)
-    cl.user_session.set("query_engine", query_engine)
+I can help you find information from your uploaded documentation.
+
+📁 **Data Directory**: `./data`
+📄 **Supported Files**: PDF, DOCX, TXT, MD, JSON, XML, YAML, logs, scripts, and more
+🔄 **To add files**: Place them in the data folder and restart the app
+
+Ask me anything about your IT documentation!""",
+            author="Assistant"
+        ).send()
+        
+    except Exception as e:
+        await cl.Message(
+            content=f"❌ Error initializing chat session: {str(e)}",
+            author="System"
+        ).send()
+        raise
 
 
 @cl.on_message
 async def main(message: cl.Message):
-    query_engine = cl.user_session.get("query_engine")
-    response = await cl.make_async(query_engine.query)(message.content)
-
-    response_message = cl.Message(content="")
-
-    for token in response.response_gen:
-        await response_message.stream_token(token=token)
-
-    if response.response_txt:
-        response_message.content = response.response_txt
-
-    await response_message.send()
+    """Handle user messages with error handling."""
+    try:
+        query_engine = cl.user_session.get("query_engine")
+        
+        if not query_engine:
+            await cl.Message(
+                content="❌ Query engine not initialized. Please refresh the page.",
+                author="System"
+            ).send()
+            return
+        
+        # Execute the query with error handling
+        response = await cl.make_async(query_engine.query)(message.content)
+        
+        response_message = cl.Message(content="")
+        
+        # Stream the response with error handling
+        try:
+            for token in response.response_gen:
+                await response_message.stream_token(token=token)
+        except Exception as stream_error:
+            print(f"Streaming error: {stream_error}")
+            # Fall back to non-streaming response
+            if response.response_txt:
+                response_message.content = response.response_txt
+                await response_message.send()
+                return
+        
+        # Ensure we have content to send
+        if response.response_txt:
+            response_message.content = response.response_txt
+        
+        await response_message.send()
+        
+    except Exception as e:
+        print(f"Error in message handler: {e}")
+        await cl.Message(
+            content=f"❌ Sorry, I encountered an error processing your request: {str(e)}",
+            author="System"
+        ).send()
