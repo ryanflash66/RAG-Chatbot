@@ -1,7 +1,7 @@
-llama-hub unstructured
-unstructured[doc,docx,ppt,pptx,pdf,image]
 llama-index
-unstructured
+llama-index-llms-openai
+llama-index-readers-file
+unstructured[doc,docx,ppt,pptx,pdf,image]
 langchain
 chainlit
-chainlit hello
+openai
