@@ -9,6 +9,23 @@ from config import init_env, init_settings, setup_openai_client, get_data_dir, g
 from index_utils import load_or_create_index, DocumentLoadError, print_supported_file_types
 from chat_history import chat_history_manager
 
+
+# Simple authentication callback for chat history
+@cl.password_auth_callback
+def auth_callback(username: str, password: str):
+    """
+    Simple password authentication for chat history.
+    In production, use proper authentication methods.
+    """
+    # Simple demo credentials - in production, use proper auth
+    if username == "admin" and password == "password":
+        return cl.User(
+            identifier="admin", 
+            metadata={"role": "admin", "provider": "credentials"}
+        )
+    else:
+        return None
+
 # Initialize environment and configuration
 try:
     print_supported_file_types()  # Show supported file types on startup
