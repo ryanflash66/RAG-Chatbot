@@ -53,6 +53,21 @@ def get_embedding_model() -> str:
     return os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 
 
+def get_chat_history_enabled() -> bool:
+    """Get whether chat history is enabled from environment or use default."""
+    return os.getenv("ENABLE_CHAT_HISTORY", "true").lower() == "true"
+
+
+def get_max_chat_history() -> int:
+    """Get the maximum number of chat sessions to keep in history."""
+    return int(os.getenv("MAX_CHAT_HISTORY", "50"))
+
+
+def get_chat_storage_dir() -> str:
+    """Get the chat storage directory path from environment or use default."""
+    return os.getenv("CHAT_STORAGE_DIR", "./chat_history")
+
+
 def init_settings(api_key: str) -> None:
     """
     Initialize LlamaIndex settings with LLM and embedding models.
