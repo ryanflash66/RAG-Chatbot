@@ -3,19 +3,18 @@
 Minimal test for chat history - no external dependencies
 """
 
-def test_minimal():
+def test_minimal(tmp_path):
     """Test basic Python functionality"""
-    import os
     import json
     from pathlib import Path
     from datetime import datetime
-    
-    print("✅ Basic imports working")
-    
-    # Test chat storage directory creation
-    chat_dir = Path("./test_chat_history")
-    chat_dir.mkdir(exist_ok=True)
-    print(f"✅ Created test directory: {chat_dir}")
+
+    print("Basic imports working")
+
+    # Use pytest's isolated tmp_path to avoid Windows directory-lock issues
+    chat_dir = tmp_path / "test_chat_history"
+    chat_dir.mkdir()
+    print(f"Created test directory: {chat_dir}")
     
     # Test JSON operations
     test_data = {
@@ -37,12 +36,8 @@ def test_minimal():
     
     print(f"✅ JSON operations working: {loaded_data['title']}")
     
-    # Cleanup
-    test_file.unlink()
-    chat_dir.rmdir()
-    print("✅ Cleanup completed")
-    
-    return True
+    # tmp_path is cleaned up automatically by pytest
+    print("Cleanup delegated to pytest tmp_path fixture")
 
 if __name__ == "__main__":
     print("🔬 Minimal Chat History Test")
