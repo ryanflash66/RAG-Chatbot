@@ -1,7 +1,9 @@
 llama-index
 llama-index-llms-openai
 llama-index-readers-file
+llama-index-embeddings-huggingface
 unstructured[doc,docx,ppt,pptx,pdf,image]
 langchain
 chainlit
 openai
+python-dotenv
