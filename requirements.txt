@@ -1,7 +1,14 @@
 llama-index
+llama-index-vector-stores-chroma
 llama-index-llms-openai
 llama-index-readers-file
+llama-index-embeddings-huggingface
+chromadb
 unstructured[doc,docx,ppt,pptx,pdf,image]
-langchain
 chainlit
 openai
+python-dotenv
+fastapi
+uvicorn[standard]
+httpx
+pytest
