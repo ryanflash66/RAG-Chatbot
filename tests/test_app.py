@@ -91,3 +91,74 @@ def test_auth_rejects_wrong_credentials(monkeypatch, username, password):
 
 def test_auth_rejects_everyone_when_unconfigured(monkeypatch):
     assert _login(monkeypatch, {}, TEST_USER, TEST_PASSWORD) is None
+
+
+# ---------------------------------------------------------------------------
+# LLM provider
+# ---------------------------------------------------------------------------
+
+def test_make_llm_ollama_uses_large_context_and_base_url():
+    llm = app._make_llm(load_config({"OLLAMA_BASE_URL": "http://gpu-box:11434"}))
+
+    assert type(llm).__name__ == "Ollama"
+    assert llm.model == "qwen2.5:14b"
+    assert llm.base_url == "http://gpu-box:11434"
+    assert llm.context_window == app.OLLAMA_CONTEXT_WINDOW >= 8192
+
+
+def test_make_llm_openrouter_needs_key():
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        app._make_llm(load_config({"LLM_PROVIDER": "openrouter"}))
+
+    llm = app._make_llm(load_config({"LLM_PROVIDER": "openrouter", "OPENROUTER_API_KEY": "test-key"}))
+    assert type(llm).__name__ == "OpenAI"
+    assert llm.api_base == "https://openrouter.ai/api/v1"
+
+
+def test_model_label_says_where_it_runs():
+    assert "local" in app._model_label(load_config({}))
+    assert "OpenRouter" in app._model_label(load_config({"LLM_PROVIDER": "openrouter"}))
+
+
+class _FakeResponse:
+    def __init__(self, models):
+        self._models = models
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"models": [{"name": name} for name in self._models]}
+
+
+def test_check_ollama_passes_when_model_pulled(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: _FakeResponse(["qwen2.5:14b", "llama3.1:8b"]))
+    app._check_ollama(load_config({}))
+
+
+def test_check_ollama_accepts_implicit_latest_tag(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: _FakeResponse(["mistral:latest"]))
+    app._check_ollama(load_config({"MODEL_NAME": "mistral"}))
+
+
+def test_check_ollama_reports_missing_model(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: _FakeResponse(["llama3.1:8b"]))
+    with pytest.raises(RuntimeError, match="ollama pull qwen2.5:14b"):
+        app._check_ollama(load_config({}))
+
+
+def test_check_ollama_reports_server_down(monkeypatch):
+    import httpx
+
+    def refuse(*_args, **_kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "get", refuse)
+    with pytest.raises(RuntimeError, match="isn't running at http://localhost:11434"):
+        app._check_ollama(load_config({}))
