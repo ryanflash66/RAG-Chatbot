@@ -230,5 +230,6 @@ Thumbs.db
 # LlamaIndex storage
 llama_index_storage/
 
-# Local Claude Code instructions (kept out of the remote)
+# Local-only docs (kept out of the remote)
 CLAUDE.md
+CONTEXT.md
