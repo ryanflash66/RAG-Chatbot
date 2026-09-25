@@ -6,6 +6,7 @@ covered by the manual smoke test in README.md.
 
 import asyncio
 import importlib
+import secrets
 
 import pytest
 
@@ -68,17 +69,25 @@ def _login(monkeypatch, env, username, password):
     return asyncio.run(app.auth_callback(username, password))
 
 
+# Generated per run so no credential-looking literal lives in the repo.
+TEST_USER = "analyst"
+TEST_PASSWORD = secrets.token_urlsafe(16)
+TEST_ENV = {"CHAINLIT_AUTH_USERNAME": TEST_USER, "CHAINLIT_AUTH_PASSWORD": TEST_PASSWORD}
+
+
 def test_auth_accepts_configured_credentials(monkeypatch):
-    env = {"CHAINLIT_AUTH_USERNAME": "analyst", "CHAINLIT_AUTH_PASSWORD": "s3cret"}
-    user = _login(monkeypatch, env, "analyst", "s3cret")
-    assert user is not None and user.identifier == "analyst"
+    user = _login(monkeypatch, TEST_ENV, TEST_USER, TEST_PASSWORD)
+    assert user is not None and user.identifier == TEST_USER
 
 
-@pytest.mark.parametrize("username,password", [("analyst", "wrong"), ("admin", "s3cret"), ("", "")])
+@pytest.mark.parametrize("username,password", [
+    (TEST_USER, TEST_PASSWORD + "x"),
+    ("someone-else", TEST_PASSWORD),
+    ("", ""),
+])
 def test_auth_rejects_wrong_credentials(monkeypatch, username, password):
-    env = {"CHAINLIT_AUTH_USERNAME": "analyst", "CHAINLIT_AUTH_PASSWORD": "s3cret"}
-    assert _login(monkeypatch, env, username, password) is None
+    assert _login(monkeypatch, TEST_ENV, username, password) is None
 
 
 def test_auth_rejects_everyone_when_unconfigured(monkeypatch):
-    assert _login(monkeypatch, {}, "admin", "password") is None
+    assert _login(monkeypatch, {}, TEST_USER, TEST_PASSWORD) is None
