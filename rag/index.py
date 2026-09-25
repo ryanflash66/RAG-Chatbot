@@ -6,14 +6,21 @@ module; callers get plain Hit values.
 
 A refresh builds into a staging collection and swaps it in only once the build
 succeeds, so a failed refresh leaves the previous index serving queries.
+
+Several RetrievalIndex instances (the API server, the Chainlit app, the CLI) may
+share one store. None of them caches the collection: every call looks it up by
+name, so each sees the others' refreshes. A swap briefly removes the name; lookups
+that land in that window wait for it to reappear.
 """
 
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional
 
 import chromadb
+from chromadb.errors import NotFoundError
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -28,6 +35,11 @@ class EmptyIndexError(RuntimeError):
 
 class NoDocumentsError(ValueError):
     """Raised by refresh() when the data directory has no loadable Documents."""
+
+
+# How long a lookup waits for a collection that another instance is swapping in.
+_SWAP_WAIT_SECONDS = 5.0
+_SWAP_POLL_SECONDS = 0.1
 
 
 @dataclass(frozen=True)
@@ -59,7 +71,29 @@ class RetrievalIndex:
         self._lock = threading.RLock()
         config.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(path=str(config.chroma_persist_dir))
-        self._collection = self._client.get_or_create_collection(config.chroma_collection)
+
+    @property
+    def _staging_name(self) -> str:
+        return f"{self._config.chroma_collection}__staging"
+
+    def _collection(self):
+        """The live collection, looked up by name; None if nothing has been built."""
+        deadline = time.monotonic() + _SWAP_WAIT_SECONDS
+        while True:
+            try:
+                return self._client.get_collection(self._config.chroma_collection)
+            except NotFoundError:
+                # A staging collection means another instance is mid-swap.
+                if not self._exists(self._staging_name) or time.monotonic() > deadline:
+                    return None
+                time.sleep(_SWAP_POLL_SECONDS)
+
+    def _exists(self, name: str) -> bool:
+        try:
+            self._client.get_collection(name)
+            return True
+        except NotFoundError:
+            return False
 
     @property
     def config(self) -> AppConfig:
@@ -67,11 +101,14 @@ class RetrievalIndex:
 
     def stats(self) -> IndexStats:
         with self._lock:
-            meta = self._collection.metadata or {}
+            collection = self._collection()
+            if collection is None:
+                return IndexStats(self._config.chroma_collection, documents=0, vectors=0, last_refresh_at=None)
+            meta = collection.metadata or {}
             return IndexStats(
                 collection=self._config.chroma_collection,
                 documents=int(meta.get("documents", 0)),
-                vectors=self._collection.count(),
+                vectors=collection.count(),
                 last_refresh_at=meta.get("last_refresh_at"),
             )
 
@@ -86,7 +123,7 @@ class RetrievalIndex:
                 )
 
             name = self._config.chroma_collection
-            staging_name = f"{name}__staging"
+            staging_name = self._staging_name
             self._delete_collection(staging_name)
             staging = self._client.create_collection(
                 staging_name,
@@ -109,13 +146,12 @@ class RetrievalIndex:
 
             self._delete_collection(name)
             staging.modify(name=name)
-            self._collection = self._client.get_collection(name)
             return self.stats()
 
     def ensure_built(self) -> IndexStats:
         """Build once if the index is empty and there are Documents to index."""
         with self._lock:
-            if self._collection.count() == 0:
+            if self.stats().vectors == 0:
                 try:
                     return self.refresh()
                 except NoDocumentsError:
@@ -128,19 +164,27 @@ class RetrievalIndex:
         k: int = 4,
         where: Optional[Mapping[str, str]] = None,
     ) -> List[Hit]:
+        filters = (
+            MetadataFilters(filters=[MetadataFilter(key=key, value=value) for key, value in where.items()])
+            if where
+            else None
+        )
         with self._lock:
-            if self._collection.count() == 0:
-                raise EmptyIndexError("The index is empty. Ingest documents first.")
-            index = VectorStoreIndex.from_vector_store(
-                vector_store=ChromaVectorStore(chroma_collection=self._collection),
-                embed_model=self._embed_model,
-            )
-            filters = (
-                MetadataFilters(filters=[MetadataFilter(key=key, value=value) for key, value in where.items()])
-                if where
-                else None
-            )
-            nodes = index.as_retriever(similarity_top_k=k, filters=filters).retrieve(query)
+            # One retry covers a collection swapped out by another instance mid-query.
+            for attempt in range(2):
+                collection = self._collection()
+                if collection is None or collection.count() == 0:
+                    raise EmptyIndexError("The index is empty. Ingest documents first.")
+                index = VectorStoreIndex.from_vector_store(
+                    vector_store=ChromaVectorStore(chroma_collection=collection),
+                    embed_model=self._embed_model,
+                )
+                try:
+                    nodes = index.as_retriever(similarity_top_k=k, filters=filters).retrieve(query)
+                    break
+                except NotFoundError:
+                    if attempt:
+                        raise
 
         return [
             Hit(
