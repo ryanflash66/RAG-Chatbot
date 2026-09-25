@@ -38,25 +38,73 @@ def _config() -> AppConfig:
     return load_config()
 
 
-@functools.lru_cache(maxsize=1)
-def _runtime():
-    """Build the Retrieval index and LLM once per process."""
-    config = _config()
+# Retrieved chunks plus the question run to roughly 4-5k tokens; Ollama's own
+# default context is smaller and would silently cut the prompt.
+OLLAMA_CONTEXT_WINDOW = 8192
+# Generous, so the first request (which loads the model into VRAM) doesn't time out.
+OLLAMA_REQUEST_TIMEOUT = 300.0
+
+
+def _check_ollama(config: AppConfig) -> None:
+    """Fail early, with a fix-it message, if Ollama is down or the model isn't pulled."""
+    import httpx
+
+    try:
+        response = httpx.get(f"{config.ollama_base_url}/api/tags", timeout=5)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            f"Ollama isn't running at {config.ollama_base_url} ({exc.__class__.__name__}). "
+            "Start the Ollama app or service, or set OLLAMA_BASE_URL."
+        ) from exc
+
+    names = {m.get("name", "") for m in response.json().get("models", [])}
+    wanted = config.model_name
+    if wanted not in names and f"{wanted}:latest" not in names:
+        raise RuntimeError(f"Model {wanted} isn't pulled in Ollama. Run: ollama pull {wanted}")
+
+
+def _make_llm(config: AppConfig):
+    if config.llm_provider == "ollama":
+        from llama_index.llms.ollama import Ollama
+
+        return Ollama(
+            model=config.model_name,
+            base_url=config.ollama_base_url,
+            temperature=config.temperature,
+            context_window=OLLAMA_CONTEXT_WINDOW,
+            request_timeout=OLLAMA_REQUEST_TIMEOUT,
+        )
+
     if not config.openrouter_api_key:
-        raise ValueError("OPENROUTER_API_KEY not found in environment variables. Please check your .env file.")
-
-    index = RetrievalIndex(config, make_embed_model(config))
-    stats = index.ensure_built()
-    print(f"Retrieval index '{stats.collection}': {stats.documents} documents, {stats.vectors} vectors")
-
+        raise ValueError("OPENROUTER_API_KEY is required when LLM_PROVIDER=openrouter. Please check your .env file.")
     from llama_index.llms.openai import OpenAI
 
-    llm = OpenAI(
+    return OpenAI(
         model=config.model_name,
         temperature=config.temperature,
         api_base="https://openrouter.ai/api/v1",
         api_key=config.openrouter_api_key,
     )
+
+
+def _model_label(config: AppConfig) -> str:
+    where = "local, via Ollama" if config.llm_provider == "ollama" else "remote, via OpenRouter"
+    return f"{config.model_name} ({where})"
+
+
+@functools.lru_cache(maxsize=1)
+def _runtime():
+    """Build the Retrieval index and LLM once per process."""
+    config = _config()
+    if config.llm_provider == "ollama":
+        _check_ollama(config)
+    llm = _make_llm(config)
+
+    index = RetrievalIndex(config, make_embed_model(config))
+    stats = index.ensure_built()
+    print(f"Retrieval index '{stats.collection}': {stats.documents} documents, {stats.vectors} vectors")
+    print(f"Answering with {_model_label(config)}")
     return index, llm
 
 
@@ -145,6 +193,7 @@ async def factory():
 I can help you find information from your uploaded documentation.
 
 📁 **Data Directory**: `{config.data_dir}`
+🧠 **Model**: {_model_label(config)}
 🔄 **To add files**: upload them via `POST /api/ingest`, or place them in the data folder and run `py -m rag refresh`
 
 Ask me anything about your IT documentation!"""

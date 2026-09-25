@@ -2,7 +2,7 @@
 
 An IT support and incident response chatbot. It indexes documents from `data/` into ChromaDB and answers questions about them through a Chainlit chat UI. A FastAPI retrieval API ingests and queries the same index.
 
-- **Chat UI** (`app.py`, Chainlit): retrieves relevant chunks, streams an answer from an OpenRouter-hosted LLM, and cites its sources. It requires login and keeps chat history per user.
+- **Chat UI** (`app.py`, Chainlit): retrieves relevant chunks, streams an answer from an LLM, and cites its sources. By default the LLM runs locally through Ollama; OpenRouter is optional. It requires login and keeps chat history per user.
 - **Retrieval API** (`server.py`, FastAPI): `POST /api/ingest` uploads documents and rebuilds the index. `POST /api/query` returns ranked chunks with metadata and never calls an LLM.
 - **Shared core** (`rag/`): both entrypoints use one Retrieval index.
 
@@ -15,13 +15,30 @@ pip install -r requirements.txt
 copy .env.example .env            # then edit .env
 ```
 
+Install [Ollama](https://ollama.com) and pull the default model (about 9 GB; it fits a 12 GB GPU):
+
+```bash
+winget install Ollama.Ollama
+ollama pull qwen2.5:14b
+```
+
 Required in `.env` for the chat UI:
 
 | Variable | Purpose |
 |---|---|
-| `OPENROUTER_API_KEY` | LLM access via OpenRouter |
 | `CHAINLIT_AUTH_SECRET` | Signs login sessions. Generate one with `chainlit create-secret` |
 | `CHAINLIT_AUTH_USERNAME` / `CHAINLIT_AUTH_PASSWORD` | The login. If either is unset, every login is refused |
+
+Choosing the LLM:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LLM_PROVIDER` | `ollama` | `ollama` (local) or `openrouter` (remote) |
+| `MODEL_NAME` | `qwen2.5:14b` / `gpt-4o` | The model, defaulting per provider |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Where Ollama is running |
+| `OPENROUTER_API_KEY` | — | Only needed with `LLM_PROVIDER=openrouter` |
+
+If Ollama isn't running, or the model hasn't been pulled, the chat says so and tells you the command to fix it.
 
 Every other setting is optional; see `.env.example`. Relative paths resolve against the repo root, whatever the working directory. The embedding model (`BAAI/bge-small-en-v1.5`) downloads on first use.
 
@@ -40,6 +57,15 @@ py -m rag stats      # collection, document and vector counts, last refresh time
 ```
 
 Dropping a file into `data/` does nothing until you run a refresh or ingest through the API.
+
+## Privacy
+
+Indexing, embeddings, search and chat history all stay on your machine. What leaves it depends on `LLM_PROVIDER`:
+
+- **`ollama` (default):** no document text leaves the machine. The only outbound traffic is model downloads (Hugging Face for the embedding model, Ollama for the LLM) and library telemetry, which you can turn off (see the end of `.env.example`).
+- **`openrouter`:** every chat question sends the question, the 4 best-matching passages and their file paths to OpenRouter, which passes them to the model's provider. Check OpenRouter's privacy settings if the documents are sensitive.
+
+`POST /api/query` never calls an LLM, so it's local with either provider.
 
 ## Retrieval API
 
@@ -124,7 +150,7 @@ A chat's title is its first message, cut to 50 characters. Chainlit's own thread
 
 The tests use a real ChromaDB in a temp directory and a deterministic hash embedding, so nothing is downloaded. Tests that need Tesseract or LibreOffice are skipped when the tool is missing.
 
-**Manual smoke test for the chat UI** (needs a real `OPENROUTER_API_KEY`):
+**Manual smoke test for the chat UI** (needs Ollama running with the model pulled, or `LLM_PROVIDER=openrouter` with a real key):
 1. Log in.
 2. Ask about a document in `data/`, and check that the answer streams and cites `Sources`.
 3. Reload the page, load the chat from **Recent chats**, then delete it.
