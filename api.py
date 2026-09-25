@@ -20,8 +20,6 @@ from rag.config import AppConfig, load_config
 from rag.index import EmptyIndexError, NoDocumentsError, RetrievalIndex, make_embed_model
 from rag.staging import UploadRejected, stage
 
-SUPPORTED_EXTENSIONS = loader.supported_extensions()
-
 _indexes: Dict[AppConfig, RetrievalIndex] = {}
 _indexes_lock = threading.Lock()
 _ingest_lock = threading.Lock()
@@ -93,7 +91,7 @@ def ingest_documents(
         staged = stage(
             index.config.data_dir,
             ((upload.filename, upload.file.read()) for upload in files),
-            SUPPORTED_EXTENSIONS,
+            loader.supported_extensions(),
         )
     except UploadRejected as exc:
         raise HTTPException(status_code=400, detail=str(exc))
