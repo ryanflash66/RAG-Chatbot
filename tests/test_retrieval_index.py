@@ -170,3 +170,64 @@ def test_subdirectories_are_indexed_with_relative_source(index, seeded_config):
     hits = index.retrieve("scan", k=10, where={"incident_type": "malware"})
 
     assert _sources(hits) == {"playbooks/malware.md"}
+
+
+# ---------------------------------------------------------------------------
+# Several instances sharing one store (API server, Chainlit app, CLI)
+# ---------------------------------------------------------------------------
+
+def test_second_instance_sees_refresh(index, seeded_config, hash_embed):
+    index.refresh()
+    other = RetrievalIndex(seeded_config, hash_embed)
+    assert _sources(other.retrieve("ransomware", k=10)) == {"seed_ransomware.md"}
+
+    (seeded_config.data_dir / "phishing_playbook.md").write_text("# Phishing\nReset.", encoding="utf-8")
+    index.refresh()
+
+    assert "phishing_playbook.md" in _sources(other.retrieve("phishing", k=10))
+    assert other.stats() == index.stats()
+
+
+def test_instance_created_before_first_build_sees_it(index, seeded_config, hash_embed):
+    other = RetrievalIndex(seeded_config, hash_embed)
+    assert other.stats().vectors == 0
+
+    index.refresh()
+
+    assert other.stats().vectors > 0
+    assert other.retrieve("ransomware")
+
+
+_REFRESH_IN_SUBPROCESS = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from rag.config import load_config
+from rag.index import RetrievalIndex
+from tests.conftest import _HashEmbedding
+config = load_config({"DATA_DIR": sys.argv[2], "CHROMA_PERSIST_DIR": sys.argv[3], "CHROMA_COLLECTION": sys.argv[4]})
+print(RetrievalIndex(config, _HashEmbedding()).refresh().documents)
+"""
+
+
+def test_refresh_in_another_process_is_visible(index, seeded_config):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    index.refresh()
+    assert index.retrieve("ransomware")
+    (seeded_config.data_dir / "phishing_playbook.md").write_text("# Phishing\nReset.", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable, "-c", _REFRESH_IN_SUBPROCESS,
+            str(Path(__file__).resolve().parent.parent),
+            str(seeded_config.data_dir), str(seeded_config.chroma_persist_dir), seeded_config.chroma_collection,
+        ],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "2"
+
+    assert index.stats().documents == 2
+    assert "phishing_playbook.md" in _sources(index.retrieve("phishing", k=10))
