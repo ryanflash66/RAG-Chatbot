@@ -9,11 +9,14 @@ A format with `requires` set is only supported when that program is on PATH
 
 Readers:
   "default"      -- LlamaIndex's built-in reader for the extension
+  "pdf"          -- pymupdf4llm: one Markdown Document per page, tables kept as
+                    Markdown tables so cells stay in their columns
   "text"         -- read as plain UTF-8 text
   "unstructured" -- UnstructuredReader, for formats with no usable built-in reader
 """
 
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePath
@@ -36,7 +39,7 @@ class FileFormat:
 
 FORMATS: Dict[str, FileFormat] = {
     # Documents
-    ".pdf": FileFormat("pdf", "default"),
+    ".pdf": FileFormat("pdf", "pdf"),
     ".docx": FileFormat("word", "default"),
     ".doc": FileFormat("word", "unstructured", requires="soffice"),
     ".md": FileFormat("markdown", "default"),
@@ -128,6 +131,8 @@ def _file_extractor(files: List[Path]) -> Dict[str, object]:
 
         reader = UnstructuredReader()
         extractor.update({ext: reader for ext in unstructured_exts})
+    pdf_exts = {ext for ext, fmt in FORMATS.items() if fmt.reader == "pdf"}
+    extractor.update({ext: _PdfMarkdownReader() for ext in pdf_exts})
     # Keep "text" formats away from any built-in reader keyed on the same extension.
     text_exts = {ext for ext, fmt in FORMATS.items() if fmt.reader == "text"}
     extractor.update({ext: _PlainTextReader() for ext in text_exts})
@@ -138,6 +143,35 @@ class _PlainTextReader(BaseReader):
     def load_data(self, file, extra_info=None, **_kwargs) -> List[Document]:
         text = Path(file).read_text(encoding="utf-8", errors="replace")
         return [Document(text=text, metadata=extra_info or {})]
+
+
+# Inline HTML pymupdf4llm emits for highlighted/underlined text and in-cell line
+# breaks; it only adds noise to embeddings. U+FFFD marks glyphs it couldn't map.
+_PDF_MARKUP = re.compile(r"</?(?:mark|u)>|\ufffd")
+
+
+class _PdfMarkdownReader(BaseReader):
+    """One Document per page, as Markdown; tables become Markdown tables.
+
+    Empty and "--" cells are kept, so every row has the table's full column count.
+    """
+
+    def load_data(self, file, extra_info=None, **_kwargs) -> List[Document]:
+        import pymupdf4llm
+
+        pages = pymupdf4llm.to_markdown(str(file), page_chunks=True, show_progress=False)
+        return [
+            Document(
+                text=_PDF_MARKUP.sub("", page["text"]).replace("<br>", " "),
+                metadata={
+                    # "page" on pymupdf4llm's fallback path (no pymupdf.layout); both are 1-based.
+                    "page_label": str(page["metadata"].get("page_number", page["metadata"].get("page"))),
+                    "file_name": Path(file).name,
+                    **(extra_info or {}),
+                },
+            )
+            for page in pages
+        ]
 
 
 def load(data_dir: "str | Path") -> List[Document]:

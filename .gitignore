@@ -233,3 +233,4 @@ llama_index_storage/
 # Local-only docs (kept out of the remote)
 CLAUDE.md
 CONTEXT.md
+.e2e_chroma/
