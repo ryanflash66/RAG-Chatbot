@@ -79,7 +79,7 @@ curl localhost:8001/health
 ```
 
 - **Ingest:** the whole batch is validated before anything is written. Filenames are reduced to their base name. Uploading a file with the same name replaces the existing one. If the rebuild fails, the uploads are removed and any replaced files are restored.
-- **Query:** returns 503 until something has been indexed. `where` filters on the classification fields below.
+- **Query:** returns 503 until something has been indexed. `where` filters on the classification fields below. Each result has `text`, `source`, `score`, `incident_type`, `doc_domain`, plus `page` (the PDF page label, `null` for formats without pages) and `section` (the heading the chunk sits under, `null` when unknown), so a citation can point to where in the source the answer came from.
 
 ## Document metadata
 

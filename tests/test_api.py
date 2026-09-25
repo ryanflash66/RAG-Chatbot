@@ -222,3 +222,78 @@ def test_ingest_rejects_formats_whose_tool_is_missing(client, monkeypatch):
 
     assert resp.status_code == 400
     assert ".png" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Page and section on /api/query results
+# ---------------------------------------------------------------------------
+
+def _pdf(page_texts) -> bytes:
+    """A minimal valid PDF with one line of Helvetica text per page."""
+    n = len(page_texts)
+    kids = " ".join(f"{3 + 2 * i} 0 R" for i in range(n))
+    font_id = 3 + 2 * n
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {n} >>".encode(),
+    ]
+    for i, text in enumerate(page_texts):
+        stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {4 + 2 * i} 0 R >>".encode()
+        )
+        objects.append(b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream))
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % off for off in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    return bytes(out)
+
+
+def test_query_markdown_results_have_no_page(client):
+    resp = client.post("/api/query", json={"query": "ransomware containment", "top_k": 10})
+
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert results
+    for result in results:
+        assert result["page"] is None
+        # Either no section is known or a real heading -- never the "N/A" placeholder.
+        assert result["section"] is None or result["section"].strip() not in ("", "N/A")
+
+
+def test_query_pdf_results_report_their_page(client):
+    pdf = _pdf(["Clear zone width is 30 feet.", "Taper length depends on speed."])
+    ingest = client.post("/api/ingest", files={"files": ("work_zone_manual.pdf", pdf, "application/pdf")})
+    assert ingest.status_code == 200, ingest.text
+
+    resp = client.post("/api/query", json={"query": "clear zone", "top_k": 10})
+
+    assert resp.status_code == 200
+    by_page = {r["page"]: r["text"] for r in resp.json()["results"] if r["source"] == "work_zone_manual.pdf"}
+    assert set(by_page) == {"1", "2"}
+    assert "Clear zone width" in by_page["1"]
+    assert "Taper length" in by_page["2"]
+
+
+def test_query_maps_placeholder_section_to_null(index, monkeypatch):
+    from rag.index import Hit
+
+    index.ensure_built()
+    hits = [
+        Hit(text="a", score=0.9, source="a.md", metadata={"section": "N/A"}),
+        Hit(text="b", score=0.8, source="b.pdf", metadata={"section": "Table 6H-3", "page_label": 12}),
+    ]
+    monkeypatch.setattr(index, "retrieve", lambda *args, **kwargs: hits)
+
+    results = make_client(index).post("/api/query", json={"query": "x"}).json()["results"]
+
+    assert [(r["page"], r["section"]) for r in results] == [(None, None), ("12", "Table 6H-3")]
