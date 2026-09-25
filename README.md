@@ -4,7 +4,7 @@ An IT support and incident response chatbot. It indexes documents from `data/` i
 
 - **Chat UI** (`app.py`, Chainlit): retrieves relevant chunks, streams an answer from an OpenRouter-hosted LLM, and cites its sources. It requires login and keeps chat history per user.
 - **Retrieval API** (`server.py`, FastAPI): `POST /api/ingest` uploads documents and rebuilds the index. `POST /api/query` returns ranked chunks with metadata and never calls an LLM.
-- **Shared core** (`rag/`): both entrypoints use one Retrieval index. See [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
+- **Shared core** (`rag/`): both entrypoints use one Retrieval index.
 
 ## Setup
 
