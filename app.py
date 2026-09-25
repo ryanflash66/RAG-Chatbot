@@ -6,18 +6,21 @@ Nothing heavy runs at import time. The index, embedding model and LLM are
 created on the first chat session.
 """
 import functools
+import hmac
 import re
 import uuid
 from datetime import datetime
+from typing import Dict, List
 
 import chainlit as cl
 from dotenv import load_dotenv
 
 from chat_history import ChatHistoryManager
-from rag.config import load_config
+from rag.config import AppConfig, load_config
 from rag.index import EmptyIndexError, Hit, RetrievalIndex, make_embed_model
 
 TOP_K = 4
+RECENT_CHATS_LIMIT = 10
 
 PROMPT_TEMPLATE = """Answer the question using only the context below.
 If the context does not contain the answer, say so.
@@ -29,28 +32,16 @@ Question: {question}
 Answer:"""
 
 
-# Simple authentication callback for chat history
-@cl.password_auth_callback
-def auth_callback(username: str, password: str):
-    """
-    Simple password authentication for chat history.
-    In production, use proper authentication methods.
-    """
-    # Simple demo credentials - in production, use proper auth
-    if username == "admin" and password == "password":
-        return cl.User(
-            identifier="admin", 
-            metadata={"role": "admin", "provider": "credentials"}
-        )
-    else:
-        return None
+@functools.lru_cache(maxsize=1)
+def _config() -> AppConfig:
+    load_dotenv()
+    return load_config()
 
 
 @functools.lru_cache(maxsize=1)
 def _runtime():
-    """Build the config, Retrieval index and LLM once per process."""
-    load_dotenv()
-    config = load_config()
+    """Build the Retrieval index and LLM once per process."""
+    config = _config()
     if not config.openrouter_api_key:
         raise ValueError("OPENROUTER_API_KEY not found in environment variables. Please check your .env file.")
 
@@ -66,29 +57,87 @@ def _runtime():
         api_base="https://openrouter.ai/api/v1",
         api_key=config.openrouter_api_key,
     )
-    return config, index, llm
+    return index, llm
+
+
+@cl.password_auth_callback
+async def auth_callback(username: str, password: str):
+    """Password login against CHAINLIT_AUTH_USERNAME / CHAINLIT_AUTH_PASSWORD.
+
+    With either variable unset, every login is refused.
+    """
+    config = _config()
+    if not (config.auth_username and config.auth_password):
+        print("Login refused: CHAINLIT_AUTH_USERNAME / CHAINLIT_AUTH_PASSWORD are not set.")
+        return None
+    user_ok = hmac.compare_digest(username.encode(), config.auth_username.encode())
+    password_ok = hmac.compare_digest(password.encode(), config.auth_password.encode())
+    if user_ok and password_ok:
+        return cl.User(identifier=username, metadata={"role": "admin", "provider": "credentials"})
+    return None
 
 
 def _history() -> ChatHistoryManager:
-    config, _, _ = _runtime()
+    config = _config()
     user = cl.user_session.get("user")
     user_id = re.sub(r"[^A-Za-z0-9_-]", "_", user.identifier)[:64] if user else None
     return ChatHistoryManager(config.chat_storage_dir, config.max_chat_history, user_id)
 
 
-def _build_prompt(question: str, hits: list[Hit]) -> str:
+def _build_prompt(question: str, hits: List[Hit]) -> str:
     context = "\n\n---\n\n".join(f"[{hit.source}]\n{hit.text}" for hit in hits)
     return PROMPT_TEMPLATE.format(context=context, question=question)
+
+
+def _history_actions(sessions: List[Dict], limit: int = RECENT_CHATS_LIMIT) -> List[cl.Action]:
+    """Load/delete buttons for the most recent sessions, plus a clear-all button."""
+    actions: List[cl.Action] = []
+    for session in sessions[:limit]:
+        payload = {"session_id": session["session_id"]}
+        actions.append(cl.Action(name="load_chat", payload=payload, label=session["title"], icon="history"))
+        actions.append(cl.Action(name="delete_chat", payload=payload, label="", tooltip="Delete", icon="trash-2"))
+    if sessions:
+        actions.append(cl.Action(name="clear_all_history", payload={}, label="Clear all", icon="eraser"))
+    return actions
+
+
+async def _send_recent_chats() -> None:
+    sessions = _history().get_chat_history()
+    if not sessions:
+        return
+    await cl.Message(
+        content=f"🕘 **Recent chats** ({len(sessions)})",
+        author="System",
+        actions=_history_actions(sessions),
+    ).send()
+
+
+def _record(message_type: str, content: str, author: str) -> None:
+    messages = cl.user_session.get("messages", [])
+    messages.append({
+        "type": message_type,
+        "content": content,
+        "timestamp": datetime.now().isoformat(),
+        "author": author,
+    })
+    cl.user_session.set("messages", messages)
+
+
+def _save_session() -> None:
+    session_id = cl.user_session.get("session_id")
+    messages = cl.user_session.get("messages", [])
+    if session_id and any(m.get("type") == "user_message" for m in messages):
+        _history().save_chat_session(session_id, messages)
 
 
 @cl.on_chat_start
 async def factory():
     """Initialize the chat session and chat history."""
     try:
-        config, _, _ = await cl.make_async(_runtime)()
+        config = _config()
+        await cl.make_async(_runtime)()
 
-        session_id = str(uuid.uuid4())
-        cl.user_session.set("session_id", session_id)
+        cl.user_session.set("session_id", str(uuid.uuid4()))
         cl.user_session.set("messages", [])
 
         welcome_msg = f"""🤖 **IT Support RAG Chatbot Ready!**
@@ -98,24 +147,13 @@ I can help you find information from your uploaded documentation.
 📁 **Data Directory**: `{config.data_dir}`
 🔄 **To add files**: upload them via `POST /api/ingest`, or place them in the data folder and run `py -m rag refresh`
 
-💬 **Chat History**: Your conversations are saved when the chat ends
-
 Ask me anything about your IT documentation!"""
 
-        await cl.Message(
-            content=welcome_msg,
-            author="Assistant"
-        ).send()
+        await cl.Message(content=welcome_msg, author="Assistant").send()
 
         if config.chat_history_enabled:
-            messages = cl.user_session.get("messages", [])
-            messages.append({
-                "type": "assistant_message",
-                "content": welcome_msg,
-                "timestamp": datetime.now().isoformat(),
-                "author": "Assistant"
-            })
-            cl.user_session.set("messages", messages)
+            _record("assistant_message", welcome_msg, "Assistant")
+            await _send_recent_chats()
 
     except Exception as e:
         await cl.Message(
@@ -127,20 +165,13 @@ Ask me anything about your IT documentation!"""
 
 @cl.on_message
 async def main(message: cl.Message):
-    """Handle user messages with error handling and history tracking."""
+    """Retrieve Hits, stream the LLM's answer, and save the session."""
     try:
-        config, index, llm = _runtime()
+        config = _config()
+        index, llm = _runtime()
 
-        # Add user message to history
         if config.chat_history_enabled:
-            messages = cl.user_session.get("messages", [])
-            messages.append({
-                "type": "user_message",
-                "content": message.content,
-                "timestamp": datetime.now().isoformat(),
-                "author": "User"
-            })
-            cl.user_session.set("messages", messages)
+            _record("user_message", message.content, "User")
 
         try:
             hits = await cl.make_async(index.retrieve)(message.content, k=TOP_K)
@@ -162,17 +193,10 @@ async def main(message: cl.Message):
 
         await response_message.send()
 
-        # Add assistant response to history
         if config.chat_history_enabled:
-            messages = cl.user_session.get("messages", [])
-            messages.append({
-                "type": "assistant_message", 
-                "content": response_message.content,
-                "timestamp": datetime.now().isoformat(),
-                "author": "Assistant"
-            })
-            cl.user_session.set("messages", messages)
-        
+            _record("assistant_message", response_message.content, "Assistant")
+            _save_session()
+
     except Exception as e:
         print(f"Error in message handler: {e}")
         await cl.Message(
@@ -183,85 +207,55 @@ async def main(message: cl.Message):
 
 @cl.on_chat_end
 async def on_chat_end():
-    """Save chat session when conversation ends."""
-    config, _, _ = _runtime()
-    if not config.chat_history_enabled:
+    """Save the chat session when the conversation ends."""
+    if not _config().chat_history_enabled:
         return
-    
     try:
-        session_id = cl.user_session.get("session_id")
-        messages = cl.user_session.get("messages", [])
-        
-        if session_id and messages:
-            # Only save if there are actual user messages
-            user_messages = [m for m in messages if m.get("type") == "user_message"]
-            if user_messages:
-                _history().save_chat_session(session_id, messages)
-                print(f"💾 Saved chat session: {session_id}")
-    
+        _save_session()
     except Exception as e:
         print(f"Error saving chat session: {e}")
 
 
-# Chat history sidebar actions
 @cl.action_callback("load_chat")
 async def load_chat(action: cl.Action):
-    """Load a previous chat session."""
-    session_id = action.value
+    """Replay a previous session and continue it."""
+    session_id = action.payload.get("session_id", "")
     session_data = _history().load_chat_session(session_id)
-    
+
     if not session_data:
-        await cl.Message(
-            content="❌ Could not load chat session.",
-            author="System"
-        ).send()
+        await cl.Message(content="❌ Could not load chat session.", author="System").send()
         return
-    
-    # Clear current chat and load historical messages
+
+    # Later messages are appended to the loaded session rather than a new one.
+    cl.user_session.set("session_id", session_id)
+    cl.user_session.set("messages", list(session_data.get("messages", [])))
+
     await cl.Message(
         content=f"📜 **Loaded Chat:** {session_data['title']}\n\n---\n",
         author="System"
     ).send()
-    
-    # Display previous messages
     for msg in session_data.get("messages", []):
-        if msg.get("type") in ["user_message", "assistant_message"]:
-            await cl.Message(
-                content=msg["content"],
-                author=msg.get("author", "Unknown")
-            ).send()
-    
-    await cl.Message(
-        content="\n---\n💬 **Continue the conversation below:**",
-        author="System"
-    ).send()
+        if msg.get("type") in ("user_message", "assistant_message"):
+            await cl.Message(content=msg["content"], author=msg.get("author", "Unknown")).send()
+    await cl.Message(content="\n---\n💬 **Continue the conversation below:**", author="System").send()
 
 
 @cl.action_callback("delete_chat")
 async def delete_chat(action: cl.Action):
-    """Delete a chat session."""
-    session_id = action.value
-    if _history().delete_chat_session(session_id):
-        await cl.Message(
-            content="🗑️ Chat session deleted successfully.",
-            author="System"
-        ).send()
+    """Delete a chat session and show the updated list."""
+    if _history().delete_chat_session(action.payload.get("session_id", "")):
+        await cl.Message(content="🗑️ Chat session deleted.", author="System").send()
+        await _send_recent_chats()
     else:
-        await cl.Message(
-            content="❌ Could not delete chat session.",
-            author="System"
-        ).send()
+        await cl.Message(content="❌ Could not delete chat session.", author="System").send()
 
 
 @cl.action_callback("clear_all_history")
 async def clear_all_history(action: cl.Action):
-    """Clear all chat history."""
+    """Delete every chat session for the current user."""
     history = _history()
     sessions = history.get_chat_history()
     for session in sessions:
         history.delete_chat_session(session["session_id"])
-    
-    await cl.Message(
-        content=f"🧹 Cleared {len(sessions)} chat sessions from history.",
-        author="System"
-    ).send()
+
+    await cl.Message(content=f"🧹 Cleared {len(sessions)} chat sessions from history.", author="System").send()

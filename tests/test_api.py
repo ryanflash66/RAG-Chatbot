@@ -212,3 +212,13 @@ def test_query_empty_index_returns_503(config, hash_embed):
 
     assert resp.status_code == 503
     assert "Index unavailable" in resp.json()["detail"]
+
+
+def test_ingest_rejects_formats_whose_tool_is_missing(client, monkeypatch):
+    from rag import loader
+
+    monkeypatch.setattr(loader.shutil, "which", lambda name: None)
+    resp = client.post("/api/ingest", files={"files": ("scan.png", b"not really a png", "image/png")})
+
+    assert resp.status_code == 400
+    assert ".png" in resp.json()["detail"]

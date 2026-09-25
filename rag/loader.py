@@ -4,6 +4,9 @@ Each extension maps to how it is read and the doc_type it is labelled with.
 The ingest allowlist, the Retrieval index and the Chainlit UI all derive from
 this table.
 
+A format with `requires` set is only supported when that program is on PATH
+(Tesseract for image OCR, LibreOffice for .doc/.ppt, pandoc for .rtf/.odt).
+
 Readers:
   "default"      -- LlamaIndex's built-in reader for the extension
   "text"         -- read as plain UTF-8 text
@@ -11,9 +14,10 @@ Readers:
 """
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import Dict, FrozenSet, List
+from typing import Dict, FrozenSet, List, Optional
 
 from llama_index.core import Document, SimpleDirectoryReader
 from llama_index.core.readers.base import BaseReader
@@ -25,28 +29,29 @@ from rag.classify import classify
 class FileFormat:
     doc_type: str
     reader: str
+    # External program the reader shells out to; the format is only supported
+    # on hosts where it is on PATH.
+    requires: Optional[str] = None
 
 
 FORMATS: Dict[str, FileFormat] = {
     # Documents
     ".pdf": FileFormat("pdf", "default"),
     ".docx": FileFormat("word", "default"),
-    ".doc": FileFormat("word", "unstructured"),
+    ".doc": FileFormat("word", "unstructured", requires="soffice"),
     ".md": FileFormat("markdown", "default"),
     ".txt": FileFormat("text", "text"),
-    ".rtf": FileFormat("rtf", "unstructured"),
-    ".odt": FileFormat("opendocument", "unstructured"),
+    ".rtf": FileFormat("rtf", "unstructured", requires="pandoc"),
+    ".odt": FileFormat("opendocument", "unstructured", requires="pandoc"),
     ".html": FileFormat("html", "unstructured"),
     ".htm": FileFormat("html", "unstructured"),
     # Presentations
     ".pptx": FileFormat("powerpoint", "default"),
-    ".ppt": FileFormat("powerpoint", "unstructured"),
-    ".odp": FileFormat("opendocument", "unstructured"),
+    ".ppt": FileFormat("powerpoint", "unstructured", requires="soffice"),
     # Spreadsheets and data
     ".csv": FileFormat("csv", "default"),
     ".xlsx": FileFormat("spreadsheet", "unstructured"),
     ".xls": FileFormat("spreadsheet", "unstructured"),
-    ".ods": FileFormat("opendocument", "unstructured"),
     ".json": FileFormat("json", "text"),
     ".jsonl": FileFormat("jsonl", "text"),
     # Configuration, scripts and logs
@@ -66,17 +71,22 @@ FORMATS: Dict[str, FileFormat] = {
     ".eml": FileFormat("email", "unstructured"),
     ".msg": FileFormat("email", "unstructured"),
     # Images (OCR)
-    ".png": FileFormat("image", "unstructured"),
-    ".jpg": FileFormat("image", "unstructured"),
-    ".jpeg": FileFormat("image", "unstructured"),
-    ".gif": FileFormat("image", "unstructured"),
-    ".bmp": FileFormat("image", "unstructured"),
-    ".tiff": FileFormat("image", "unstructured"),
+    ".png": FileFormat("image", "unstructured", requires="tesseract"),
+    ".jpg": FileFormat("image", "unstructured", requires="tesseract"),
+    ".jpeg": FileFormat("image", "unstructured", requires="tesseract"),
+    ".gif": FileFormat("image", "unstructured", requires="tesseract"),
+    ".bmp": FileFormat("image", "unstructured", requires="tesseract"),
+    ".tiff": FileFormat("image", "unstructured", requires="tesseract"),
 }
 
 
+def is_available(fmt: FileFormat) -> bool:
+    return fmt.requires is None or shutil.which(fmt.requires) is not None
+
+
 def supported_extensions() -> FrozenSet[str]:
-    return frozenset(FORMATS)
+    """Extensions this host can actually read (formats whose tool is missing are left out)."""
+    return frozenset(ext for ext, fmt in FORMATS.items() if is_available(fmt))
 
 
 def doc_type(path: "str | PurePath") -> str:
@@ -101,10 +111,11 @@ def document_metadata(relative_path: "str | PurePath") -> Dict[str, str]:
 
 
 def _supported_files(data_dir: Path) -> List[Path]:
+    supported = supported_extensions()
     return [
         p for p in data_dir.rglob("*")
         if p.is_file()
-        and p.suffix.lower() in FORMATS
+        and p.suffix.lower() in supported
         and not any(part.startswith(".") for part in p.relative_to(data_dir).parts)
     ]
 

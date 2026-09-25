@@ -25,6 +25,8 @@ class AppConfig:
     chat_history_enabled: bool
     max_chat_history: int
     chat_storage_dir: Path
+    auth_username: Optional[str]
+    auth_password: Optional[str]
 
 
 def _path(value: str) -> Path:
@@ -45,4 +47,6 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> AppConfig:
         chat_history_enabled=env.get("ENABLE_CHAT_HISTORY", "true").lower() == "true",
         max_chat_history=int(env.get("MAX_CHAT_HISTORY", "50")),
         chat_storage_dir=_path(env.get("CHAT_STORAGE_DIR", "chat_history")),
+        auth_username=env.get("CHAINLIT_AUTH_USERNAME") or None,
+        auth_password=env.get("CHAINLIT_AUTH_PASSWORD") or None,
     )

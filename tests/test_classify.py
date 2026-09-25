@@ -57,3 +57,18 @@ def test_no_match_tags_none():
 def test_extension_is_not_a_token():
     # ".ot" would otherwise read as the token "ot"
     assert classify("diagram.ot").incident_type == "unknown"
+
+
+@pytest.mark.parametrize("relative_path,incident_type", [
+    ("credential_dump.md", "credential_dumping"),
+    ("pass_the_hash_credential.md", "credential_dumping"),
+    ("cryptojacking miners.md", "ddos"),
+    ("ransomware_phishing_playbook.md", "ransomware"),
+])
+def test_most_specific_keyword_wins(relative_path, incident_type):
+    assert classify(relative_path).incident_type == incident_type
+
+
+def test_equal_specificity_goes_to_earlier_label():
+    # "worm" (malware) and "hvac" (iot_ot) are both one word of four chars
+    assert classify("hvac worm.md").incident_type == "malware"

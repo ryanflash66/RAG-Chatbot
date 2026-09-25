@@ -17,6 +17,8 @@ def test_defaults_resolve_against_repo_root():
     assert cfg.openrouter_api_key is None
     assert cfg.chat_history_enabled is True
     assert cfg.max_chat_history == 50
+    assert cfg.auth_username is None
+    assert cfg.auth_password is None
 
 
 def test_relative_paths_ignore_working_directory(tmp_path, monkeypatch):
