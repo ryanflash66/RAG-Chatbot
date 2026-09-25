@@ -6,8 +6,11 @@ python-pptx
 docx2txt
 llama-index-embeddings-huggingface
 chromadb
-unstructured[doc,docx,ppt,pptx,pdf,image]
-chainlit
+unstructured[doc,docx,ppt,pptx,pdf,image,xlsx,odt,rtf]
+xlrd
+# python-magic hangs on Windows when it finds a foreign libmagic DLL on PATH (e.g. Git's mingw64); this bundles one
+python-magic-bin; sys_platform == "win32"
+chainlit>=2,<3
 openai
 python-dotenv
 fastapi

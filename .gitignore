@@ -173,8 +173,13 @@ config.json
 secrets.json
 
 # Chainlit specific
-.chainlit/
+.chainlit/*
+!.chainlit/config.toml
 chainlit.md
+.files/
+
+# Saved chat sessions (per-user conversation logs)
+chat_history/
 
 # Vector databases
 chroma_db/

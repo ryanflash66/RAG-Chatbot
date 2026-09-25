@@ -4,6 +4,8 @@ The path is split into lowercase alphanumeric tokens (the file extension is
 dropped). A keyword matches a token exactly; keywords of four or more characters
 also match as a token prefix, so "encrypt" matches "encryption" while "ot" never
 matches "other" or "notes". Multi-word keywords match consecutive tokens.
+When several incident labels match, the most specific keyword wins (more
+words, then more characters); ties go to the earlier label in INCIDENT_KEYWORDS.
 Content, the absolute path and the repository location never affect the result.
 """
 
@@ -85,6 +87,14 @@ def _any(keywords: Sequence[str], tokens: Sequence[str]) -> bool:
     return any(_matches(keyword, tokens) for keyword in keywords)
 
 
+def _best_match(keywords: Sequence[str], tokens: Sequence[str]) -> Tuple[int, int]:
+    """Specificity of the longest matching keyword as (words, chars); (0, 0) if none."""
+    return max(
+        ((len(k.split()), len(k)) for k in keywords if _matches(k, tokens)),
+        default=(0, 0),
+    )
+
+
 def classify(relative_path: "str | PurePath") -> DocClassification:
     """Classify a Document by its path relative to the data directory."""
     tokens = _tokens(PurePath(relative_path))
@@ -97,12 +107,15 @@ def classify(relative_path: "str | PurePath") -> DocClassification:
             tags="asset,inventory",
         )
 
-    matched = [label for label, keywords in INCIDENT_KEYWORDS.items() if _any(keywords, tokens)]
+    scores = {label: _best_match(keywords, tokens) for label, keywords in INCIDENT_KEYWORDS.items()}
+    matched = [label for label, score in scores.items() if score > (0, 0)]
+    # Most specific keyword wins; max() keeps the first label (dict order) on ties.
+    incident_type = max(matched, key=scores.__getitem__) if matched else "unknown"
     doc_domain = "ir" if _any(IR_KEYWORDS, tokens) else "general"
     tags = matched + (["ir"] if doc_domain == "ir" else [])
 
     return DocClassification(
-        incident_type=matched[0] if matched else "unknown",
+        incident_type=incident_type,
         doc_domain=doc_domain,
         asset_scope="unknown",
         tags=",".join(tags) if tags else "none",

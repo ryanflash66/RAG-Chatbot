@@ -1,91 +1,102 @@
 # RAG-Chatbot
 
-A powerful document-based chatbot built with LlamaIndex and Chainlit that provides a conversational interface to your documents.
+An IT support and incident response chatbot. It indexes documents from `data/` into ChromaDB and answers questions about them through a Chainlit chat UI. A FastAPI retrieval API ingests and queries the same index.
 
-## Description
+- **Chat UI** (`app.py`, Chainlit): retrieves relevant chunks, streams an answer from an OpenRouter-hosted LLM, and cites its sources. It requires login and keeps chat history per user.
+- **Retrieval API** (`server.py`, FastAPI): `POST /api/ingest` uploads documents and rebuilds the index. `POST /api/query` returns ranked chunks with metadata and never calls an LLM.
+- **Shared core** (`rag/`): both entrypoints use one Retrieval index. See [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
-This project implements a chatbot that can ingest various document types (PDF, DOCX, PPT, images, etc.), index their content using LlamaIndex, and provide a user-friendly chat interface with Chainlit. Users can ask questions about their documents and receive relevant answers based on the document content.
+## Setup
 
-## Features
-
-- 📁 Multi-format document support (PDF, DOCX, PPTX, images, and more)
-- 💬 Interactive chat interface powered by Chainlit
-- 🔍 Semantic search and retrieval using LlamaIndex
-- 🧠 Context-aware responses
-- 📊 Document processing visualization
-- 🚀 Easy to deploy and use
-
-## Installation
-
-1. Clone the repository:
-
-   ```
-   git clone https://github.com/ryanflash66/llamaIndexchatbot_chainlitUI.git
-   cd llamaIndexchatbot_chainlitUI
-   ```
-
-2. Install the required packages:
-
-   ```
-   pip install -r requirements.txt
-   ```
-
-3. Set up your environment variables (create a `.env` file):
-   ```
-   OPENAI_API_KEY=your_openai_api_key_here
-   ```
-
-## Usage
-
-1. Place your documents in the `data/` directory.
-
-2. Run the Chainlit app:
-
-   ```
-   chainlit run app.py
-   ```
-
-3. Open your browser and navigate to `http://localhost:8000` to interact with your documents through the chat interface.
-
-## Project Structure
-
-```
-llamaIndexchatbot_chainlitUI/
-├── app.py              # Main application file
-├── utils/              # Utility functions
-├── data/               # Directory for document storage
-├── requirements.txt    # Project dependencies
-└── README.md           # This file
+```bash
+py -m venv .venv
+.venv\Scripts\activate            # Windows  (source .venv/bin/activate elsewhere)
+pip install -r requirements.txt
+copy .env.example .env            # then edit .env
 ```
 
-## Dependencies
+Required in `.env` for the chat UI:
 
-- llama-index - For document indexing and querying
-- llama-hub - For data connectors
-- unstructured - For parsing various document formats
-- langchain - For language model integration
-- chainlit - For the chat UI interface
+| Variable | Purpose |
+|---|---|
+| `OPENROUTER_API_KEY` | LLM access via OpenRouter |
+| `CHAINLIT_AUTH_SECRET` | Signs login sessions. Generate one with `chainlit create-secret` |
+| `CHAINLIT_AUTH_USERNAME` / `CHAINLIT_AUTH_PASSWORD` | The login. If either is unset, every login is refused |
 
-## Configuration
+Every other setting is optional; see `.env.example`. Relative paths resolve against the repo root, whatever the working directory. The embedding model (`BAAI/bge-small-en-v1.5`) downloads on first use.
 
-You can customize the behavior of the chatbot by modifying the configuration parameters in the app. Key configurations include:
+## Running
 
-- Model selection (default: OpenAI)
-- Chunk size for document processing
-- Temperature and other generation parameters
-- UI customization options
+```bash
+chainlit run app.py                  # chat UI on http://localhost:8000
+uvicorn server:app --port 8001       # retrieval API, docs at http://localhost:8001/docs
+```
 
-## Example Queries
+Both build the index once at startup if it is empty. After that, the index changes only when you ask it to:
 
-- "Summarize the key points in the annual report."
-- "What were the main conclusions of the research paper?"
-- "Extract the financial data from Q3 earnings."
-- "Compare the information between these two documents."
+```bash
+py -m rag refresh    # rebuild from everything in data/
+py -m rag stats      # collection, document and vector counts, last refresh time
+```
+
+Dropping a file into `data/` does nothing until you run a refresh or ingest through the API.
+
+## Retrieval API
+
+```bash
+curl -F files=@playbook.md -F files=@runbook.pdf localhost:8001/api/ingest
+
+curl -H "content-type: application/json" localhost:8001/api/query \
+     -d '{"query": "contain infected hosts", "top_k": 4, "where": {"incident_type": "ransomware"}}'
+
+curl localhost:8001/health
+```
+
+- **Ingest:** the whole batch is validated before anything is written. Filenames are reduced to their base name. Uploading a file with the same name replaces the existing one. If the rebuild fails, the uploads are removed and any replaced files are restored.
+- **Query:** returns 503 until something has been indexed. `where` filters on the classification fields below.
+
+## Document metadata
+
+Each Document is labelled from its **path relative to `data/`**, never from its content:
+
+- `incident_type`: e.g. `ransomware`, `phishing` or `credential_dumping`. The most specific keyword wins.
+- `doc_domain`: `ir`, `general` or `asset_inventory`.
+- `tags`, `asset_scope`, `doc_type`, and `source` (the relative path).
+
+Filenames matter: `playbooks/ransomware_containment.md` is filed and filterable as ransomware. The keyword lists are in `rag/classify.py`.
+
+## Supported formats
+
+The single source of truth is `FORMATS` in [`rag/loader.py`](rag/loader.py). The API's allowlist and the ingest error message are derived from it.
+
+- **Always available:** PDF, DOCX, PPTX, Markdown, text, CSV, JSON/JSONL, HTML, XML/YAML/INI/config, scripts, logs, XLSX/XLS, EML/MSG.
+- **Only available when the tool is on `PATH`:**
+
+  | Formats | Tool |
+  |---|---|
+  | Images (OCR) | `tesseract` |
+  | `.doc`, `.ppt` | `soffice` (LibreOffice) |
+  | `.rtf`, `.odt` | `pandoc` |
+
+  On hosts without the tool, those extensions are rejected at ingest and skipped when loading.
+
+## Chat history
+
+After logging in, each chat is saved as you go under `chat_history/<user>/<session>.json`. A **Recent chats** message at the start of each chat has buttons to load a chat (and keep going in it), delete one, or clear everything. See [`CHAT_HISTORY_IMPLEMENTATION.md`](CHAT_HISTORY_IMPLEMENTATION.md) and [`AUTHENTICATION_SETUP.md`](AUTHENTICATION_SETUP.md).
+
+## Tests
+
+```bash
+.venv\Scripts\python -m pytest tests/
+```
+
+The tests use a real ChromaDB in a temp directory and a deterministic hash embedding, so nothing is downloaded. Tests that need Tesseract or LibreOffice are skipped when the tool is missing.
+
+**Manual smoke test for the chat UI** (needs a real `OPENROUTER_API_KEY`):
+1. Log in.
+2. Ask about a document in `data/`, and check that the answer streams and cites `Sources`.
+3. Reload the page, load the chat from **Recent chats**, then delete it.
 
 ## License
 
 MIT
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
