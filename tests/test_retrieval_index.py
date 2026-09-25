@@ -4,6 +4,7 @@ ChromaDB is real (persistent client in tmp_path); only the embedding is a test d
 """
 
 import os
+from dataclasses import replace
 
 import pytest
 
@@ -231,3 +232,32 @@ def test_refresh_in_another_process_is_visible(index, seeded_config):
 
     assert index.stats().documents == 2
     assert "phishing_playbook.md" in _sources(index.retrieve("phishing", k=10))
+
+
+# ---------------------------------------------------------------------------
+# chunking / top-k
+# ---------------------------------------------------------------------------
+
+LONG_TEXT = " ".join(f"Sentence number {i} describes host containment step {i}." for i in range(400))
+
+
+def _long_index(config, hash_embed, **overrides):
+    """An index over one long plain-text Document, with chunking settings overridden."""
+    (config.data_dir / "long_runbook.txt").write_text(LONG_TEXT, encoding="utf-8")
+    return RetrievalIndex(replace(config, **overrides), hash_embed)
+
+
+def test_smaller_chunk_size_yields_more_vectors(config, hash_embed):
+    big = _long_index(config, hash_embed, chunk_size=1024, chunk_overlap=0).refresh().vectors
+    small = _long_index(config, hash_embed, chunk_size=128, chunk_overlap=0).refresh().vectors
+
+    assert big >= 1
+    assert small > big
+
+
+def test_retrieve_honours_k(config, hash_embed):
+    index = _long_index(config, hash_embed, chunk_size=128, chunk_overlap=0)
+    assert index.refresh().vectors > 5
+
+    assert len(index.retrieve("containment", k=1)) == 1
+    assert len(index.retrieve("containment", k=5)) == 5

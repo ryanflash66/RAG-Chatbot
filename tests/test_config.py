@@ -23,6 +23,9 @@ def test_defaults_resolve_against_repo_root():
     assert cfg.max_chat_history == 50
     assert cfg.auth_username is None
     assert cfg.auth_password is None
+    assert cfg.retrieval_top_k == 6
+    assert cfg.chunk_size == 512
+    assert cfg.chunk_overlap == 64
 
 
 def test_relative_paths_ignore_working_directory(tmp_path, monkeypatch):
@@ -60,3 +63,29 @@ def test_invalid_provider_rejected():
 
 def test_ollama_base_url_trailing_slash_dropped():
     assert load_config({"OLLAMA_BASE_URL": "http://gpu-box:11434/"}).ollama_base_url == "http://gpu-box:11434"
+
+
+def test_retrieval_settings_overridden():
+    cfg = load_config({"RETRIEVAL_TOP_K": "3", "CHUNK_SIZE": "1024", "CHUNK_OVERLAP": "200"})
+    assert (cfg.retrieval_top_k, cfg.chunk_size, cfg.chunk_overlap) == (3, 1024, 200)
+
+
+@pytest.mark.parametrize(
+    "env, match",
+    [
+        ({"RETRIEVAL_TOP_K": "0"}, "RETRIEVAL_TOP_K"),
+        ({"CHUNK_SIZE": "16"}, "CHUNK_SIZE"),
+        ({"CHUNK_OVERLAP": "-1"}, "CHUNK_OVERLAP"),
+        ({"CHUNK_SIZE": "256", "CHUNK_OVERLAP": "256"}, "CHUNK_OVERLAP"),
+        ({"RETRIEVAL_TOP_K": "12", "CHUNK_SIZE": "1024"}, "context window"),
+    ],
+)
+def test_invalid_retrieval_settings_rejected(env, match):
+    with pytest.raises(ValueError, match=match):
+        load_config(env)
+
+
+def test_default_retrieved_context_fits_ollama_window():
+    """6 chunks x 512 tokens leaves over 5k of the 8192-token window for template, question, answer."""
+    cfg = load_config({})
+    assert 8192 - cfg.retrieval_top_k * cfg.chunk_size >= 2048
