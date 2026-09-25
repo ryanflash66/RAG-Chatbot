@@ -233,3 +233,6 @@ llama_index_storage/
 # Local-only docs (kept out of the remote)
 CLAUDE.md
 CONTEXT.md
+
+# Local end-to-end test vector store
+.e2e_chroma/
