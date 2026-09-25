@@ -80,9 +80,41 @@ The single source of truth is `FORMATS` in [`rag/loader.py`](rag/loader.py). The
 
   On hosts without the tool, those extensions are rejected at ingest and skipped when loading.
 
-## Chat history
+## Login and chat history
 
-After logging in, each chat is saved as you go under `chat_history/<user>/<session>.json`. A **Recent chats** message at the start of each chat has buttons to load a chat (and keep going in it), delete one, or clear everything. See [`CHAT_HISTORY_IMPLEMENTATION.md`](CHAT_HISTORY_IMPLEMENTATION.md) and [`AUTHENTICATION_SETUP.md`](AUTHENTICATION_SETUP.md).
+**Login.** `auth_callback` in `app.py` checks the submitted credentials against `CHAINLIT_AUTH_USERNAME` and `CHAINLIT_AUTH_PASSWORD`, using a constant-time comparison. There are no built-in defaults: if either variable is unset, every login is refused and the server logs why. Changing `CHAINLIT_AUTH_SECRET` logs everyone out.
+
+**Separate users.** This is one shared account, so everyone who uses it sees the same history. To give each user their own, replace `auth_callback` with a lookup against your user store, or switch to Chainlit's OAuth or header auth. The user's identifier becomes their history folder name; characters other than letters, digits, `_` and `-` are replaced with `_`.
+
+**Recent chats.** When a chat starts, and after you delete one, the app posts a **Recent chats** message with buttons for up to 10 sessions, newest first:
+- click a title to replay that chat and keep going in it
+- the trash icon deletes a chat
+- **Clear all** deletes every chat for the current user
+
+A chat's title is its first message, cut to 50 characters. Chainlit's own thread sidebar stays empty, because history is kept by the app's own JSON store (`chat_history.py`), not a Chainlit data layer.
+
+**Saving.** A chat is saved after every reply, so reloading the page loses nothing, and again when the chat ends. It's only saved once you've sent at least one message. When a user has more than `MAX_CHAT_HISTORY` chats (default 50), the oldest are deleted.
+
+**Storage.** Each chat is a JSON file at `chat_history/<user>/<session>.json`, and `chat_history/` is gitignored. Session and user ids must match `[A-Za-z0-9_-]{1,64}`, so an id can't point outside the storage directory. The other settings are `ENABLE_CHAT_HISTORY` (default `true`) and `CHAT_STORAGE_DIR` (default `chat_history`).
+
+```json
+{
+  "session_id": "uuid", "title": "First user message…", "timestamp": "ISO-8601", "message_count": 1,
+  "messages": [
+    {"type": "user_message", "content": "...", "timestamp": "ISO-8601", "author": "User"},
+    {"type": "assistant_message", "content": "...", "timestamp": "ISO-8601", "author": "Assistant"}
+  ]
+}
+```
+
+**Chainlit settings.** `.chainlit/config.toml` turns off two features:
+- message editing, because an edited message would no longer match the saved history
+- file upload in the chat, because those files aren't indexed; use `POST /api/ingest` instead
+
+**Troubleshooting.**
+- *Every login is rejected:* check that both `CHAINLIT_AUTH_USERNAME` and `CHAINLIT_AUTH_PASSWORD` are set in `.env`, and read the server log.
+- *Chainlit complains about a missing auth secret:* set `CHAINLIT_AUTH_SECRET`.
+- *You're logged out after a restart:* the secret changed.
 
 ## Tests
 
