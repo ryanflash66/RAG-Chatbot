@@ -3,21 +3,37 @@ Chat History Management for RAG Chatbot
 Handles saving, loading, and managing chat sessions
 """
 import json
-import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
-import chainlit as cl
-from config import get_chat_storage_dir, get_max_chat_history
+
+_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _validate_id(value: str, kind: str) -> str:
+    if not isinstance(value, str) or not _ID_PATTERN.match(value):
+        raise ValueError(f"Invalid {kind}: {value!r}")
+    return value
 
 
 class ChatHistoryManager:
-    """Manages chat history persistence and retrieval."""
-    
-    def __init__(self):
-        self.storage_dir = Path(get_chat_storage_dir())
-        self.storage_dir.mkdir(exist_ok=True)
-        self.max_history = get_max_chat_history()
+    """Manages chat history persistence and retrieval.
+
+    Sessions are stored as <storage_dir>/<user_id>/<session_id>.json, or directly
+    under storage_dir when no user_id is given. Ids are restricted to letters,
+    digits, "_" and "-" so they cannot escape the storage directory.
+    """
+
+    def __init__(self, storage_dir, max_history: int = 50, user_id: Optional[str] = None):
+        self.storage_dir = Path(storage_dir)
+        if user_id is not None:
+            self.storage_dir = self.storage_dir / _validate_id(user_id, "user id")
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.max_history = max_history
+
+    def _session_path(self, session_id: str) -> Path:
+        return self.storage_dir / f"{_validate_id(session_id, 'session id')}.json"
     
     def save_chat_session(self, session_id: str, messages: List[Dict], title: str = None) -> None:
         """
@@ -40,7 +56,7 @@ class ChatHistoryManager:
             "message_count": len([m for m in messages if m.get("type") == "user_message"])
         }
         
-        file_path = self.storage_dir / f"{session_id}.json"
+        file_path = self._session_path(session_id)
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(session_data, f, indent=2, ensure_ascii=False)
         
@@ -57,7 +73,10 @@ class ChatHistoryManager:
         Returns:
             Optional[Dict]: Session data or None if not found
         """
-        file_path = self.storage_dir / f"{session_id}.json"
+        try:
+            file_path = self._session_path(session_id)
+        except ValueError:
+            return None
         if not file_path.exists():
             return None
         
@@ -104,7 +123,10 @@ class ChatHistoryManager:
         Returns:
             bool: True if deleted successfully
         """
-        file_path = self.storage_dir / f"{session_id}.json"
+        try:
+            file_path = self._session_path(session_id)
+        except ValueError:
+            return False
         if file_path.exists():
             try:
                 file_path.unlink()
@@ -134,6 +156,3 @@ class ChatHistoryManager:
             for session in sessions[self.max_history:]:
                 self.delete_chat_session(session["session_id"])
 
-
-# Global instance
-chat_history_manager = ChatHistoryManager()
