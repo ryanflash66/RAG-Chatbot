@@ -233,3 +233,7 @@ llama_index_storage/
 # Local-only docs (kept out of the remote)
 CLAUDE.md
 CONTEXT.md
+
+# Evaluation harness index and e2e scratch stores
+eval/.chroma/
+.e2e_chroma/
