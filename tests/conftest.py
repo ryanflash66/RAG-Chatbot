@@ -14,6 +14,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from llama_index.core.embeddings import BaseEmbedding
 
+from rag.config import load_config
+from rag.index import RetrievalIndex
+
 
 # ---------------------------------------------------------------------------
 # Test double: deterministic embedding
@@ -46,57 +49,59 @@ class _HashEmbedding(BaseEmbedding):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+SEED_PLAYBOOK = (
+    "# Ransomware Playbook\n\n"
+    "## Identification\nDetect encryption activity via EDR alerts.\n\n"
+    "## Containment\nIsolate affected hosts from the network immediately.\n\n"
+    "## Eradication\nRemove malicious binaries and restore from clean backups.\n\n"
+    "## Recovery\nVerify integrity of restored systems before returning to production.\n"
+)
+
+
 @pytest.fixture()
 def hash_embed() -> _HashEmbedding:
-    """Return a fresh _HashEmbedding instance."""
     return _HashEmbedding()
 
 
 @pytest.fixture()
-def temp_data(tmp_path):
-    """Isolated data and ChromaDB directories with one seed document."""
-    data_dir = tmp_path / "data"
-    chroma_dir = tmp_path / "chroma"
-    data_dir.mkdir()
-    chroma_dir.mkdir()
-
-    (data_dir / "seed_ransomware.md").write_text(
-        "# Ransomware Playbook\n\n"
-        "## Identification\nDetect encryption activity via EDR alerts.\n\n"
-        "## Containment\nIsolate affected hosts from the network immediately.\n\n"
-        "## Eradication\nRemove malicious binaries and restore from clean backups.\n\n"
-        "## Recovery\nVerify integrity of restored systems before returning to production.\n",
-        encoding="utf-8",
-    )
-    return data_dir, chroma_dir
+def config(tmp_path):
+    """AppConfig pointing at isolated data and ChromaDB directories (both empty)."""
+    cfg = load_config({
+        "DATA_DIR": str(tmp_path / "data"),
+        "CHROMA_PERSIST_DIR": str(tmp_path / "chroma"),
+        "CHROMA_COLLECTION": "test_col",
+        "CHAT_STORAGE_DIR": str(tmp_path / "chat_history"),
+    })
+    cfg.data_dir.mkdir()
+    return cfg
 
 
 @pytest.fixture()
-def temp_env(temp_data, monkeypatch):
-    """Expose temp data and ChromaDB paths via environment variables."""
-    data_dir, chroma_dir = temp_data
-    monkeypatch.setenv("DATA_DIR", str(data_dir))
-    monkeypatch.setenv("CHROMA_PERSIST_DIR", str(chroma_dir))
-    monkeypatch.setenv("CHROMA_COLLECTION", "test_col")
-    monkeypatch.setenv("EMBEDDING_MODEL", "hash-dummy")
-    return data_dir, chroma_dir
+def seeded_config(config):
+    """config with one seed Document in the data directory."""
+    (config.data_dir / "seed_ransomware.md").write_text(SEED_PLAYBOOK, encoding="utf-8")
+    return config
 
 
 @pytest.fixture()
-def patch_embed(monkeypatch):
-    """Replace the lazy embed model singleton in api.py with the test double."""
+def index(seeded_config, hash_embed) -> RetrievalIndex:
+    """A Retrieval index over the seeded data directory, not yet refreshed."""
+    return RetrievalIndex(seeded_config, hash_embed)
+
+
+def make_client(index: RetrievalIndex) -> TestClient:
+    """TestClient for the api router with the Retrieval index injected."""
     import api
-    monkeypatch.setattr(api, "_embed_model", _HashEmbedding())
 
-
-@pytest.fixture()
-def client(temp_env, patch_embed):
-    """Synchronous TestClient for the api router only.
-
-    Chainlit and the LoRA model are NOT loaded -- this client tests the
-    ingestion and query endpoints in isolation.
-    """
-    import api
     app = FastAPI()
     app.include_router(api.router)
-    return TestClient(app)
+    app.dependency_overrides[api.get_config] = lambda: index.config
+    app.dependency_overrides[api.get_index] = lambda: index
+    return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture()
+def client(index) -> TestClient:
+    """API client whose index was built from the seed Document, as at app startup."""
+    index.ensure_built()
+    return make_client(index)

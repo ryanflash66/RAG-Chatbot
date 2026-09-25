@@ -1,13 +1,32 @@
 """
 RAG Chatbot for IT Support Documentation
-Main application entry point with chat history support
+Chainlit entrypoint: an adapter over the shared Retrieval index plus an LLM.
+
+Nothing heavy runs at import time. The index, embedding model and LLM are
+created on the first chat session.
 """
-import chainlit as cl
+import functools
+import re
 import uuid
 from datetime import datetime
-from config import init_env, init_settings, setup_openai_client, get_data_dir, get_storage_dir, get_chat_history_enabled
-from index_utils import load_or_create_index, DocumentLoadError, print_supported_file_types
-from chat_history import chat_history_manager
+
+import chainlit as cl
+from dotenv import load_dotenv
+
+from chat_history import ChatHistoryManager
+from rag.config import load_config
+from rag.index import EmptyIndexError, Hit, RetrievalIndex, make_embed_model
+
+TOP_K = 4
+
+PROMPT_TEMPLATE = """Answer the question using only the context below.
+If the context does not contain the answer, say so.
+
+Context:
+{context}
+
+Question: {question}
+Answer:"""
 
 
 # Simple authentication callback for chat history
@@ -26,59 +45,69 @@ def auth_callback(username: str, password: str):
     else:
         return None
 
-# Initialize environment and configuration
-try:
-    print_supported_file_types()  # Show supported file types on startup
-    
-    OPENROUTER_API_KEY = init_env()
-    setup_openai_client(OPENROUTER_API_KEY)
-    init_settings(OPENROUTER_API_KEY)
-    
-    # Load or create the vector index
-    storage_dir = get_storage_dir()
-    data_dir = get_data_dir()
-    index = load_or_create_index(storage_dir, data_dir)
-    
-except (ValueError, DocumentLoadError) as e:
-    print(f"❌ Initialization error: {e}")
-    raise
-except Exception as e:
-    print(f"❌ Unexpected error during initialization: {e}")
-    raise
+
+@functools.lru_cache(maxsize=1)
+def _runtime():
+    """Build the config, Retrieval index and LLM once per process."""
+    load_dotenv()
+    config = load_config()
+    if not config.openrouter_api_key:
+        raise ValueError("OPENROUTER_API_KEY not found in environment variables. Please check your .env file.")
+
+    index = RetrievalIndex(config, make_embed_model(config))
+    stats = index.ensure_built()
+    print(f"Retrieval index '{stats.collection}': {stats.documents} documents, {stats.vectors} vectors")
+
+    from llama_index.llms.openai import OpenAI
+
+    llm = OpenAI(
+        model=config.model_name,
+        temperature=config.temperature,
+        api_base="https://openrouter.ai/api/v1",
+        api_key=config.openrouter_api_key,
+    )
+    return config, index, llm
+
+
+def _history() -> ChatHistoryManager:
+    config, _, _ = _runtime()
+    user = cl.user_session.get("user")
+    user_id = re.sub(r"[^A-Za-z0-9_-]", "_", user.identifier)[:64] if user else None
+    return ChatHistoryManager(config.chat_storage_dir, config.max_chat_history, user_id)
+
+
+def _build_prompt(question: str, hits: list[Hit]) -> str:
+    context = "\n\n---\n\n".join(f"[{hit.source}]\n{hit.text}" for hit in hits)
+    return PROMPT_TEMPLATE.format(context=context, question=question)
 
 
 @cl.on_chat_start
 async def factory():
-    """Initialize the chat session with query engine and chat history."""
+    """Initialize the chat session and chat history."""
     try:
-        query_engine = index.as_query_engine(streaming=True)
-        cl.user_session.set("query_engine", query_engine)
-        
-        # Initialize chat session
+        config, _, _ = await cl.make_async(_runtime)()
+
         session_id = str(uuid.uuid4())
         cl.user_session.set("session_id", session_id)
         cl.user_session.set("messages", [])
-        
-        # Send welcome message with chat history info
-        welcome_msg = """🤖 **IT Support RAG Chatbot Ready!**
+
+        welcome_msg = f"""🤖 **IT Support RAG Chatbot Ready!**
 
 I can help you find information from your uploaded documentation.
 
-📁 **Data Directory**: `./data`
-📄 **Supported Files**: PDF, DOCX, TXT, MD, JSON, XML, YAML, logs, scripts, and more
-🔄 **To add files**: Place them in the data folder and restart the app
+📁 **Data Directory**: `{config.data_dir}`
+🔄 **To add files**: upload them via `POST /api/ingest`, or place them in the data folder and run `py -m rag refresh`
 
-💬 **Chat History**: Your conversations are automatically saved in the sidebar
+💬 **Chat History**: Your conversations are saved when the chat ends
 
 Ask me anything about your IT documentation!"""
-        
+
         await cl.Message(
             content=welcome_msg,
             author="Assistant"
         ).send()
-        
-        # Add welcome message to session history
-        if get_chat_history_enabled():
+
+        if config.chat_history_enabled:
             messages = cl.user_session.get("messages", [])
             messages.append({
                 "type": "assistant_message",
@@ -87,7 +116,7 @@ Ask me anything about your IT documentation!"""
                 "author": "Assistant"
             })
             cl.user_session.set("messages", messages)
-        
+
     except Exception as e:
         await cl.Message(
             content=f"❌ Error initializing chat session: {str(e)}",
@@ -100,17 +129,10 @@ Ask me anything about your IT documentation!"""
 async def main(message: cl.Message):
     """Handle user messages with error handling and history tracking."""
     try:
-        query_engine = cl.user_session.get("query_engine")
-        
-        if not query_engine:
-            await cl.Message(
-                content="❌ Query engine not initialized. Please refresh the page.",
-                author="System"
-            ).send()
-            return
-        
+        config, index, llm = _runtime()
+
         # Add user message to history
-        if get_chat_history_enabled():
+        if config.chat_history_enabled:
             messages = cl.user_session.get("messages", [])
             messages.append({
                 "type": "user_message",
@@ -119,32 +141,29 @@ async def main(message: cl.Message):
                 "author": "User"
             })
             cl.user_session.set("messages", messages)
-        
-        # Execute the query with error handling
-        response = await cl.make_async(query_engine.query)(message.content)
-        
-        response_message = cl.Message(content="")
-        
-        # Stream the response with error handling
+
         try:
-            for token in response.response_gen:
-                await response_message.stream_token(token=token)
-        except Exception as stream_error:
-            print(f"Streaming error: {stream_error}")
-            # Fall back to non-streaming response
-            if response.response_txt:
-                response_message.content = response.response_txt
-                await response_message.send()
-                return
-        
-        # Ensure we have content to send
-        if response.response_txt:
-            response_message.content = response.response_txt
-        
+            hits = await cl.make_async(index.retrieve)(message.content, k=TOP_K)
+        except EmptyIndexError:
+            await cl.Message(
+                content="📭 The index is empty. Add documents via `POST /api/ingest` or run `py -m rag refresh`.",
+                author="System"
+            ).send()
+            return
+
+        response_message = cl.Message(content="")
+        stream = await llm.astream_complete(_build_prompt(message.content, hits))
+        async for chunk in stream:
+            await response_message.stream_token(token=chunk.delta or "")
+
+        sources = sorted({hit.source for hit in hits if hit.source})
+        if sources:
+            await response_message.stream_token(token="\n\n**Sources:** " + ", ".join(f"`{s}`" for s in sources))
+
         await response_message.send()
-        
+
         # Add assistant response to history
-        if get_chat_history_enabled():
+        if config.chat_history_enabled:
             messages = cl.user_session.get("messages", [])
             messages.append({
                 "type": "assistant_message", 
@@ -165,7 +184,8 @@ async def main(message: cl.Message):
 @cl.on_chat_end
 async def on_chat_end():
     """Save chat session when conversation ends."""
-    if not get_chat_history_enabled():
+    config, _, _ = _runtime()
+    if not config.chat_history_enabled:
         return
     
     try:
@@ -176,7 +196,7 @@ async def on_chat_end():
             # Only save if there are actual user messages
             user_messages = [m for m in messages if m.get("type") == "user_message"]
             if user_messages:
-                chat_history_manager.save_chat_session(session_id, messages)
+                _history().save_chat_session(session_id, messages)
                 print(f"💾 Saved chat session: {session_id}")
     
     except Exception as e:
@@ -188,7 +208,7 @@ async def on_chat_end():
 async def load_chat(action: cl.Action):
     """Load a previous chat session."""
     session_id = action.value
-    session_data = chat_history_manager.load_chat_session(session_id)
+    session_data = _history().load_chat_session(session_id)
     
     if not session_data:
         await cl.Message(
@@ -221,7 +241,7 @@ async def load_chat(action: cl.Action):
 async def delete_chat(action: cl.Action):
     """Delete a chat session."""
     session_id = action.value
-    if chat_history_manager.delete_chat_session(session_id):
+    if _history().delete_chat_session(session_id):
         await cl.Message(
             content="🗑️ Chat session deleted successfully.",
             author="System"
@@ -236,9 +256,10 @@ async def delete_chat(action: cl.Action):
 @cl.action_callback("clear_all_history")
 async def clear_all_history(action: cl.Action):
     """Clear all chat history."""
-    sessions = chat_history_manager.get_chat_history()
+    history = _history()
+    sessions = history.get_chat_history()
     for session in sessions:
-        chat_history_manager.delete_chat_session(session["session_id"])
+        history.delete_chat_session(session["session_id"])
     
     await cl.Message(
         content=f"🧹 Cleared {len(sessions)} chat sessions from history.",

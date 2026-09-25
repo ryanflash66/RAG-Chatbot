@@ -1,17 +1,16 @@
 """Tests for the FastAPI ingest and query endpoints in api.py.
 
-All tests use the `client` fixture from conftest.py, which wires the api router
-into a minimal FastAPI app with:
-  - temp DATA_DIR and CHROMA_PERSIST_DIR (isolated per test via tmp_path)
-  - _HashEmbedding replacing the HuggingFace model (no download, no GPU)
+The `client` fixture wires the api router into a minimal FastAPI app and injects
+a Retrieval index (via dependency_overrides) that uses:
+  - tmp_path data and ChromaDB directories, seeded with one ransomware playbook
+  - _HashEmbedding instead of the HuggingFace model (no download, no GPU)
 
-The ChromaDB integration is real -- vectors are written to and read from an
-actual chromadb.PersistentClient backed by the temp directory.
+ChromaDB is real -- vectors are written to and read from a persistent client.
 """
 
 import io
 
-import pytest
+from tests.conftest import make_client
 
 
 # ---------------------------------------------------------------------------
@@ -33,14 +32,13 @@ def test_ingest_markdown_returns_success(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
-    assert body["indexed_docs"] >= 1
-    assert body["vector_count"] >= 1
+    assert body["indexed_docs"] == 2
+    assert body["vector_count"] >= 2
     assert body["collection"] == "test_col"
     assert "rebuilt" in body["message"]
 
 
-def test_ingest_multiple_files_returns_correct_count(client, temp_env):
-    data_dir, _ = temp_env
+def test_ingest_multiple_files_returns_correct_count(client):
     files = [
         ("files", ("ransomware.md", b"# Ransomware\n\nIsolate hosts.", "text/plain")),
         ("files", ("malware.md",    b"# Malware\n\nRun EDR scan.",     "text/plain")),
@@ -48,10 +46,8 @@ def test_ingest_multiple_files_returns_correct_count(client, temp_env):
     resp = client.post("/api/ingest", files=files)
 
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["success"] is True
-    # seed_ransomware.md (from temp_data) + 2 uploaded files = at least 3
-    assert body["indexed_docs"] >= 2
+    # seed_ransomware.md + 2 uploaded files
+    assert resp.json()["indexed_docs"] == 3
 
 
 def test_ingest_plain_text_file(client):
@@ -61,6 +57,18 @@ def test_ingest_plain_text_file(client):
     )
     assert resp.status_code == 200
     assert resp.json()["success"] is True
+
+
+def test_ingest_json_file(client):
+    resp = client.post(
+        "/api/ingest",
+        files={"files": ("asset_inventory.json", b'{"hosts": ["dc01"]}', "application/json")},
+    )
+    assert resp.status_code == 200
+    results = client.post(
+        "/api/query", json={"query": "hosts", "top_k": 10, "where": {"doc_domain": "asset_inventory"}}
+    ).json()["results"]
+    assert [r["source"] for r in results] == ["asset_inventory.json"]
 
 
 def test_ingest_unsupported_extension_returns_400(client):
@@ -82,20 +90,49 @@ def test_ingest_zip_extension_returns_400(client):
     assert resp.status_code == 400
 
 
-def test_ingest_docx_extension_is_in_supported_list():
-    from api import SUPPORTED_EXTENSIONS
-    assert ".docx" in SUPPORTED_EXTENSIONS
+def test_ingest_mixed_batch_writes_nothing(client, index):
+    before = sorted(p.name for p in index.config.data_dir.iterdir())
+    files = [
+        ("files", ("good.md", b"# Good", "text/plain")),
+        ("files", ("bad.exe", b"MZ", "application/octet-stream")),
+    ]
+
+    resp = client.post("/api/ingest", files=files)
+
+    assert resp.status_code == 400
+    assert sorted(p.name for p in index.config.data_dir.iterdir()) == before
 
 
-def test_ingest_pptx_extension_is_in_supported_list():
-    from api import SUPPORTED_EXTENSIONS
-    assert ".pptx" in SUPPORTED_EXTENSIONS
+def test_ingest_path_traversal_is_contained(client, index):
+    resp = client.post(
+        "/api/ingest",
+        files={"files": ("../escape.md", b"# Escape", "text/plain")},
+    )
+    assert resp.status_code == 200
+    assert (index.config.data_dir / "escape.md").exists()
+    assert not (index.config.data_dir.parent / "escape.md").exists()
 
 
-def test_ingest_image_extensions_are_in_supported_list():
-    from api import SUPPORTED_EXTENSIONS
-    for ext in (".png", ".jpg", ".jpeg", ".gif", ".tiff", ".bmp"):
-        assert ext in SUPPORTED_EXTENSIONS, f"Expected {ext} in SUPPORTED_EXTENSIONS"
+def test_ingest_failure_restores_overwritten_file(client, index, monkeypatch):
+    seed = index.config.data_dir / "seed_ransomware.md"
+    original = seed.read_bytes()
+
+    def failing_refresh():
+        raise RuntimeError("embedding service down")
+
+    monkeypatch.setattr(index, "refresh", failing_refresh)
+    resp = client.post(
+        "/api/ingest",
+        files=[
+            ("files", ("seed_ransomware.md", b"replacement", "text/plain")),
+            ("files", ("new.md", b"# New", "text/plain")),
+        ],
+    )
+
+    assert resp.status_code == 500
+    assert "embedding service down" in resp.json()["detail"]
+    assert seed.read_bytes() == original
+    assert not (index.config.data_dir / "new.md").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -117,23 +154,23 @@ def test_query_returns_results_after_ingest(client):
 
 
 def test_query_results_have_required_fields(client):
-    client.post(
-        "/api/ingest",
-        files={"files": ("playbook.md", b"# IR Playbook\n\nTriage, contain, eradicate.", "text/plain")},
-    )
-
     resp = client.post("/api/query", json={"query": "triage"})
     assert resp.status_code == 200
 
-    for result in resp.json()["results"]:
-        assert "text" in result
+    results = resp.json()["results"]
+    assert results
+    for result in results:
         assert result["text"]
+        assert isinstance(result["score"], float)
+        assert result["source"] == "seed_ransomware.md"
+        assert result["incident_type"] == "ransomware"
+        assert result["doc_domain"] == "ir"
 
 
 def test_query_top_k_limits_result_count(client):
     resp = client.post("/api/query", json={"query": "ransomware containment", "top_k": 1})
     assert resp.status_code == 200
-    assert len(resp.json()["results"]) <= 1
+    assert len(resp.json()["results"]) == 1
 
 
 def test_query_top_k_default_is_four(client):
@@ -145,42 +182,33 @@ def test_query_top_k_default_is_four(client):
 def test_query_seed_document_is_retrievable(client):
     resp = client.post("/api/query", json={"query": "EDR containment isolation"})
     assert resp.status_code == 200
-    body = resp.json()
-    assert len(body["results"]) > 0
-    combined_text = " ".join(r["text"] for r in body["results"]).lower()
+    combined_text = " ".join(r["text"] for r in resp.json()["results"]).lower()
     assert any(word in combined_text for word in ("isolat", "edr", "contain", "eradicat", "backup"))
 
 
-def test_query_includes_score_in_results(client):
-    resp = client.post("/api/query", json={"query": "ransomware response"})
-    assert resp.status_code == 200
-    for result in resp.json()["results"]:
-        if result.get("score") is not None:
-            assert isinstance(result["score"], float)
+def test_query_where_filters_results(client):
+    client.post(
+        "/api/ingest",
+        files={"files": ("phishing_playbook.md", b"# Phishing\n\nReset credentials.", "text/plain")},
+    )
+    resp = client.post(
+        "/api/query", json={"query": "playbook", "top_k": 10, "where": {"incident_type": "phishing"}}
+    )
+    assert {r["source"] for r in resp.json()["results"]} == {"phishing_playbook.md"}
 
 
-def test_query_empty_data_dir_returns_500(tmp_path, monkeypatch):
-    """Query endpoint returns 500 when data directory has no documents."""
-    from api import SUPPORTED_EXTENSIONS
-    import api
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from tests.conftest import _HashEmbedding
+def test_query_does_not_pick_up_unrefreshed_files(client, index):
+    (index.config.data_dir / "dropped_in.md").write_text("# Dropped in by hand", encoding="utf-8")
+    resp = client.post("/api/query", json={"query": "dropped", "top_k": 10})
+    assert "dropped_in.md" not in {r["source"] for r in resp.json()["results"]}
 
-    empty_dir = tmp_path / "empty"
-    empty_dir.mkdir()
-    chroma_dir = tmp_path / "chroma"
-    chroma_dir.mkdir()
 
-    monkeypatch.setenv("DATA_DIR", str(empty_dir))
-    monkeypatch.setenv("CHROMA_PERSIST_DIR", str(chroma_dir))
-    monkeypatch.setenv("CHROMA_COLLECTION", "empty_col")
-    monkeypatch.setattr(api, "_embed_model", _HashEmbedding())
+def test_query_empty_index_returns_503(config, hash_embed):
+    from rag.index import RetrievalIndex
 
-    app = FastAPI()
-    app.include_router(api.router)
-    c = TestClient(app, raise_server_exceptions=False)
+    c = make_client(RetrievalIndex(config, hash_embed))
 
     resp = c.post("/api/query", json={"query": "anything"})
-    assert resp.status_code == 500
+
+    assert resp.status_code == 503
     assert "Index unavailable" in resp.json()["detail"]
