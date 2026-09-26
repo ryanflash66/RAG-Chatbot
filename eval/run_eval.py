@@ -84,9 +84,19 @@ def _any_group(haystack: str, groups: Iterable[Sequence[str]]) -> bool:
     return any(group and all(_contains(haystack, s) for s in group) for group in groups)
 
 
+def _without_quoted_rows(answer: str) -> str:
+    """Drop quoted table rows ("|950|1.2|1.3|1.4|...") so only the stated answer is graded.
+
+    The chat prompt asks the model to quote the matching table row before
+    answering; that evidence holds neighbouring values that would trip the
+    reject rules.
+    """
+    return "\n".join(line for line in answer.splitlines() if not line.lstrip().startswith("|"))
+
+
 def grade(answer: str, case: Mapping[str, Any]) -> bool:
-    """True if any accept group matches in full and no reject group does."""
-    text = normalise(answer_text(answer))
+    """True if any accept group matches in full and no reject group does (quoted table rows ignored)."""
+    text = normalise(answer_text(_without_quoted_rows(answer)))
     return _any_group(text, case.get("accept", [])) and not _any_group(text, case.get("reject", []))
 
 
@@ -168,6 +178,7 @@ async def _run_cases(app, index, llm, top_k: int) -> List[Dict[str, Any]]:
             "id": case["id"],
             "question": case["question"],
             "refusal": bool(case.get("refusal")),
+            "holdout": bool(case.get("holdout")),
             "passed": grade(raw, case),
             "retrieved_expected_page": retrieval_hit(hits, case),
             "retrieved_pages": [
@@ -228,11 +239,14 @@ def run(provider: Optional[str], model: Optional[str], top_k: Optional[int], reb
         "refusal_passed": sum(r["passed"] for r in refusals),
         "refusal_total": len(refusals),
         "retrieval_hits": sum(bool(r["retrieved_expected_page"]) for r in table),
+        "holdout_passed": sum(r["passed"] for r in table if r["holdout"]),
+        "holdout_total": sum(1 for r in table if r["holdout"]),
         "avg_latency_s": round(sum(r["latency_s"] for r in results) / len(results), 2) if results else 0.0,
         "results": results,
     }
     print(
-        f"\nTable questions: {summary['table_passed']}/{summary['table_total']}  "
+        f"\nTable questions: {summary['table_passed']}/{summary['table_total']} "
+        f"(holdout {summary['holdout_passed']}/{summary['holdout_total']})  "
         f"Refusal: {summary['refusal_passed']}/{summary['refusal_total']}  "
         f"Expected page retrieved: {summary['retrieval_hits']}/{summary['table_total']}  "
         f"Avg latency: {summary['avg_latency_s']}s"

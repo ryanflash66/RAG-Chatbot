@@ -113,8 +113,62 @@ def _unwrap_bracketed_units(rows: List[str]) -> List[str]:
     return out
 
 
+def _group_label(fragments: List[str]) -> str:
+    """Join a row-group label that the PDF split over several rows.
+
+    "40 mph" + "or less" -> "40 mph or less"; "45 - 50" + "mph" -> "45 - 50 mph".
+    Rotated text can also come out with its letters split out of order
+    ("60 h" + "mp"); when the letters after the number spell "mph" in some
+    order, they are written as "mph".
+    """
+    label = re.sub(r"\s+", " ", " ".join(f.strip() for f in fragments)).strip()
+    match = re.fullmatch(r"([\d\s\-–]+?)\s*([a-zA-Z\s]+)", label)
+    if match and sorted(match.group(2).replace(" ", "").lower()) == sorted("mph"):
+        return f"{match.group(1).strip()} mph"
+    return label
+
+
+def _fill_row_group_labels(rows: List[str]) -> List[str]:
+    """Write a grouped row label on every row of its group.
+
+    Tables such as "clear zone by design speed x ADT" print each speed once,
+    spread over the rows of its group, leaving the other rows blank:
+
+        ||UNDER 750|7 - 10|...
+        |40 mph|750 - 1500|10 - 12|...
+        |or less|1500 - 6000|12 - 14|...
+        ||OVER 6000|14 - 16|...
+
+    A group is recognised by the second column cycling through the same
+    values (UNDER 750 ... OVER 6000) in every group. Each row then gets the
+    full label ("40 mph or less"), so a row read on its own, or a chunk that
+    starts mid-table, still says which group it belongs to.
+    """
+    n_header = _header_row_count(rows)
+    data = [cells(row) for row in rows[n_header:]]
+    if len(data) < 4 or any(len(r) != len(data[0]) or len(r) < 3 for r in data):
+        return rows
+    cycle_start = data[0][1].strip()
+    starts = [i for i, r in enumerate(data) if r[1].strip() == cycle_start]
+    if len(starts) < 2 or starts[0] != 0:
+        return rows
+    bounds = starts + [len(data)]
+    groups = [data[a:b] for a, b in zip(bounds, bounds[1:])]
+    keys = [[r[1].strip() for r in g] for g in groups]
+    if len(groups[0]) < 2 or any(k != keys[0] for k in keys):
+        return rows
+    labels = [[r[0] for r in g if r[0].strip()] for g in groups]
+    if not all(labels) or not any(len(l) < len(g) for l, g in zip(labels, groups)):
+        return rows  # every group needs a label, and some rows must be blank
+    out = rows[:n_header]
+    for group, fragments in zip(groups, labels):
+        label = _group_label(fragments)
+        out.extend(_row([label] + r[1:]) for r in group)
+    return out
+
+
 def clean_markdown_tables(text: str) -> str:
-    """Tidy every pipe table in `text` (see `_merge_spanning_header`, `_unwrap_bracketed_units`)."""
+    """Tidy every pipe table in `text` (see `_merge_spanning_header`, `_unwrap_bracketed_units`, `_fill_row_group_labels`)."""
     lines = text.split("\n")
     out: List[str] = []
     i = 0
@@ -123,7 +177,7 @@ def clean_markdown_tables(text: str) -> str:
             j = i
             while j < len(lines) and is_table_line(lines[j]):
                 j += 1
-            out.extend(_unwrap_bracketed_units(_merge_spanning_header(lines[i:j])))
+            out.extend(_fill_row_group_labels(_unwrap_bracketed_units(_merge_spanning_header(lines[i:j]))))
             i = j
         else:
             out.append(lines[i])

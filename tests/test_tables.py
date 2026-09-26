@@ -1,5 +1,7 @@
 """Tests for Markdown table cleanup and table-aware chunking (rag/tables.py)."""
 
+import pytest
+
 from rag import tables
 
 CURVE_TABLE = "\n".join([
@@ -132,3 +134,45 @@ def test_bracketed_values_in_unit_columns_are_unwrapped():
 def test_brackets_kept_outside_unit_columns_and_when_only_partly_bracketed():
     table = "|Item [ref]|Note|\n|---|---|\n|[a] b|[keep]|"
     assert tables.clean_markdown_tables(table) == table
+
+
+GROUPED = "\n".join([
+    "|DESIGN|||",
+    "|---|---|---|",
+    "| SPEED|DESIGN ADT|1V:6H or flatter|",
+    "||UNDER 750|7 - 10|",
+    "|40 mph|750 - 1500|10 - 12|",
+    "|or less|OVER 6000|12 - 14|",
+    "||UNDER 750|16 - 18|",
+    "|60 h|750 - 1500|20 - 24|",
+    "|mp|OVER 6000|26 - 30|",
+])
+
+
+def test_row_group_labels_are_filled_down():
+    rows = tables.clean_markdown_tables(GROUPED).split("\n")[3:]
+    assert rows == [
+        "|40 mph or less|UNDER 750|7 - 10|",
+        "|40 mph or less|750 - 1500|10 - 12|",
+        "|40 mph or less|OVER 6000|12 - 14|",
+        "|60 mph|UNDER 750|16 - 18|",
+        "|60 mph|750 - 1500|20 - 24|",
+        "|60 mph|OVER 6000|26 - 30|",
+    ]
+
+
+@pytest.mark.parametrize("fragments, label", [
+    (["40 mph", "or less"], "40 mph or less"),
+    (["45 - 50", "mph"], "45 - 50 mph"),
+    (["60 h", "mp"], "60 mph"),
+    (["65-70"], "65-70"),
+])
+def test_group_label(fragments, label):
+    assert tables._group_label(fragments) == label
+
+
+def test_tables_without_a_repeating_group_key_are_unchanged():
+    curve = "|R|40|45|\n|---|---|---|\n|2860|1.1|1.1|\n|2290|1.1|1.2|\n|1910|1.1|1.2|\n|1640|1.1|1.2|"
+    states = "|State|Criteria|\n|---|---|\n|Iowa|> 10 in|\n|Texas|> 2 ft|\n|Ohio|> 5 in|\n|Utah|> 3 in|"
+    assert tables.clean_markdown_tables(curve) == curve
+    assert tables.clean_markdown_tables(states) == states

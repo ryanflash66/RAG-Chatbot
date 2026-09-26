@@ -16,7 +16,8 @@ CASES = {case["id"]: case for case in run_eval.load_cases()}
 
 
 def test_cases_file_is_well_formed():
-    assert len(CASES) == 9
+    assert len(CASES) == 14
+    assert sum(bool(c.get("holdout")) for c in CASES.values()) == 5
     for case in CASES.values():
         assert case["question"] and case["note"]
         assert case["accept"] and all(group for group in case["accept"])
@@ -34,6 +35,11 @@ def test_cases_file_is_well_formed():
     ("Q7", "The clear zone is 20 – 22 ft."),
     ("Q8", "Between 24 and 28 feet."),
     ("Q9", "The context does not contain information about a password reset policy."),
+    ("H1", "The correction factor is 1.4."),
+    ("H2", "The clear zone is 16 - 18 feet."),
+    ("H3", "Use a run-out length of 425 ft."),
+    ("H4", "California: drop-off depth > 6 inches, located within 8 feet of the travel way."),
+    ("H5", "The run-out length is 215 ft."),
 ])
 def test_correct_answers_pass(case_id, answer):
     assert run_eval.grade(answer, CASES[case_id])
@@ -79,3 +85,18 @@ def test_retrieval_hit_checks_source_and_page():
     assert run_eval.retrieval_hit([wrong_page, right], case) is True
     assert run_eval.retrieval_hit([wrong_page, other_doc], case) is False
     assert run_eval.retrieval_hit([right], CASES["Q9"]) is None
+
+
+@pytest.mark.parametrize("case_id, answer", [
+    ("Q1", "The clear-zone width is 23 meters."),
+    ("Q2", "It is 13 meters or 13 feet."),
+    ("H1", "The factor is 1.3."),
+    ("H3", "Use 475 ft."),
+])
+def test_wrong_or_hedged_answers_fail(case_id, answer):
+    assert not run_eval.grade(answer, CASES[case_id])
+
+
+def test_quoted_table_rows_are_not_graded():
+    answer = "|RADIUS [ft] \\ DESIGN SPEED [mph]|40|45|50|\n|950|1.2|1.3|1.4|\nIn the 50 mph column the factor is 1.4 [1]."
+    assert run_eval.grade(answer, CASES["H1"])
