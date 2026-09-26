@@ -279,3 +279,79 @@ def test_refresh_keeps_markdown_tables_whole(config, hash_embed):
     assert len(table_hits) == 1
     assert "Table 9-1 Work zone widths" in table_hits[0].text
     assert all(f"|{r}|{r}.5|" in table_hits[0].text for r in range(12))
+
+
+# ---------------------------------------------------------------------------
+# Reranking
+# ---------------------------------------------------------------------------
+
+def _keyword_reranker(keyword):
+    """Fake cross-encoder: passages containing `keyword` score 1, others 0."""
+    calls = []
+
+    def rerank(query, passages):
+        calls.append(len(passages))
+        return [1.0 if keyword in passage else 0.0 for passage in passages]
+
+    rerank.calls = calls
+    return rerank
+
+
+def _many_docs_config(config, n=12, **overrides):
+    for i in range(n):
+        (config.data_dir / f"doc{i:02d}.md").write_text(f"# Doc {i}\nfiller text number {i}", encoding="utf-8")
+    (config.data_dir / "needle.md").write_text("# Needle\nthe answer is 42", encoding="utf-8")
+    return replace(config, **overrides)
+
+
+def test_reranker_reorders_candidates_and_keeps_vector_score(config, hash_embed):
+    cfg = _many_docs_config(config, rerank_candidates=50)
+    rerank = _keyword_reranker("answer is 42")
+    index = RetrievalIndex(cfg, hash_embed, rerank)
+    index.refresh()
+
+    hits = index.retrieve("unrelated question", k=3)
+
+    assert len(hits) == 3
+    assert hits[0].source == "needle.md"
+    assert hits[0].score == 1.0
+    assert isinstance(hits[0].metadata["vector_score"], float)
+    assert rerank.calls == [13]  # all candidates scored in one call
+
+
+def test_reranker_fetches_rerank_candidates_not_k(config, hash_embed):
+    cfg = _many_docs_config(config, rerank_candidates=5)
+    rerank = _keyword_reranker("zzz")
+    RetrievalIndex(cfg, hash_embed, rerank).refresh()
+
+    hits = RetrievalIndex(cfg, hash_embed, rerank).retrieve("anything", k=2)
+
+    assert len(hits) == 2
+    assert rerank.calls == [5]
+
+
+def test_k_above_candidates_still_returns_k(config, hash_embed):
+    cfg = _many_docs_config(config, rerank_candidates=2)
+    rerank = _keyword_reranker("zzz")
+    index = RetrievalIndex(cfg, hash_embed, rerank)
+    index.refresh()
+
+    assert len(index.retrieve("anything", k=6)) == 6
+    assert rerank.calls == [6]
+
+
+def test_without_reranker_scores_are_vector_similarity(config, hash_embed):
+    cfg = _many_docs_config(config)
+    index = RetrievalIndex(cfg, hash_embed)
+    index.refresh()
+
+    hits = index.retrieve("anything", k=3)
+
+    assert len(hits) == 3
+    assert all("vector_score" not in hit.metadata for hit in hits)
+
+
+def test_make_reranker_off_when_model_unset(config):
+    from rag.index import make_reranker
+
+    assert make_reranker(replace(config, rerank_model=None)) is None

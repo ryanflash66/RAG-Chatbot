@@ -193,7 +193,7 @@ def run(provider: Optional[str], model: Optional[str], top_k: Optional[int], reb
 
     import app
     from rag.config import load_config
-    from rag.index import NoDocumentsError, RetrievalIndex, make_embed_model
+    from rag.index import NoDocumentsError, RetrievalIndex, make_embed_model, make_reranker
 
     try:
         config = load_config()
@@ -205,7 +205,7 @@ def run(provider: Optional[str], model: Optional[str], top_k: Optional[int], reb
     # Same number of passages the chat app retrieves, unless --top-k overrides it.
     top_k = top_k or config.retrieval_top_k
 
-    index = RetrievalIndex(config, make_embed_model(config))
+    index = RetrievalIndex(config, make_embed_model(config), make_reranker(config))
     try:
         stats = index.refresh() if rebuild else index.ensure_built()
     except NoDocumentsError as exc:
