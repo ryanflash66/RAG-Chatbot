@@ -55,6 +55,16 @@ class SourceNode(BaseModel):
     score: Optional[float] = None
     incident_type: Optional[str] = None
     doc_domain: Optional[str] = None
+    page: Optional[str] = None
+    section: Optional[str] = None
+
+
+def _optional_label(value) -> Optional[str]:
+    """A metadata label as a string, or None when it is missing or the "N/A" placeholder."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return None if not text or text == "N/A" else text
 
 
 class QueryResponse(BaseModel):
@@ -118,6 +128,10 @@ def query_rag(body: QueryRequest, index: RetrievalIndex = Depends(get_index)):
 
     Read-only: this never rebuilds the index. Optional `where` filters on
     Document classification fields, e.g. {"incident_type": "ransomware"}.
+
+    Each result carries `page` (the PDF page label the chunk came from) and
+    `section` (the heading it sits under) when the source records them;
+    both are null otherwise.
     """
     try:
         hits = index.retrieve(body.query, k=body.top_k, where=body.where)
@@ -133,6 +147,8 @@ def query_rag(body: QueryRequest, index: RetrievalIndex = Depends(get_index)):
                 score=hit.score,
                 incident_type=hit.metadata.get("incident_type"),
                 doc_domain=hit.metadata.get("doc_domain"),
+                page=_optional_label(hit.metadata.get("page_label")),
+                section=_optional_label(hit.metadata.get("section")),
             )
             for hit in hits
         ],
