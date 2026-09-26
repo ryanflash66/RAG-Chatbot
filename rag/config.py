@@ -39,6 +39,10 @@ class AppConfig:
     retrieval_top_k: int
     chunk_size: int
     chunk_overlap: int
+    # Cross-encoder that re-orders the top `rerank_candidates` vector hits before
+    # the best `retrieval_top_k` are kept. None turns reranking off.
+    rerank_model: Optional[str]
+    rerank_candidates: int
     llm_provider: str
     model_name: str
     temperature: float
@@ -70,6 +74,10 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> AppConfig:
         raise ValueError(f"CHUNK_SIZE must be at least 64 tokens, got {chunk_size}")
     if not 0 <= chunk_overlap < chunk_size:
         raise ValueError(f"CHUNK_OVERLAP must be at least 0 and less than CHUNK_SIZE ({chunk_size}), got {chunk_overlap}")
+    rerank_model = env.get("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2").strip()
+    rerank_candidates = int(env.get("RERANK_CANDIDATES", "20"))
+    if rerank_candidates < 1:
+        raise ValueError(f"RERANK_CANDIDATES must be at least 1, got {rerank_candidates}")
     if top_k * chunk_size > MAX_RETRIEVED_TOKENS:
         raise ValueError(
             f"RETRIEVAL_TOP_K x CHUNK_SIZE ({top_k} x {chunk_size}) exceeds {MAX_RETRIEVED_TOKENS} tokens "
@@ -83,6 +91,8 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> AppConfig:
         retrieval_top_k=top_k,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
+        rerank_model=None if rerank_model.lower() in ("", "none", "off") else rerank_model,
+        rerank_candidates=rerank_candidates,
         llm_provider=provider,
         model_name=env.get("MODEL_NAME") or DEFAULT_MODELS[provider],
         temperature=float(env.get("TEMPERATURE", "0")),

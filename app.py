@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 from chat_history import ChatHistoryManager
 from rag.config import AppConfig, load_config
-from rag.index import EmptyIndexError, Hit, RetrievalIndex, make_embed_model
+from rag.index import EmptyIndexError, Hit, RetrievalIndex, make_embed_model, make_reranker
 
 RECENT_CHATS_LIMIT = 10
 
@@ -101,7 +101,7 @@ def _runtime():
         _check_ollama(config)
     llm = _make_llm(config)
 
-    index = RetrievalIndex(config, make_embed_model(config))
+    index = RetrievalIndex(config, make_embed_model(config), make_reranker(config))
     stats = index.ensure_built()
     print(f"Retrieval index '{stats.collection}': {stats.documents} documents, {stats.vectors} vectors")
     print(f"Answering with {_model_label(config)}")
