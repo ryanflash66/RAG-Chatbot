@@ -3,6 +3,7 @@
 ChromaDB is real (persistent client in tmp_path); only the embedding is a test double.
 """
 
+import dataclasses
 import os
 from dataclasses import replace
 
@@ -261,3 +262,20 @@ def test_retrieve_honours_k(config, hash_embed):
 
     assert len(index.retrieve("containment", k=1)) == 1
     assert len(index.retrieve("containment", k=5)) == 5
+
+
+def test_refresh_keeps_markdown_tables_whole(config, hash_embed):
+    rows = "\n".join(f"|{r}|{r}.5|" for r in range(12))
+    (config.data_dir / "clearance.md").write_text(
+        "# Clearance\n\n" + " ".join(f"Sentence {i}." for i in range(400)) +
+        "\n\n###### Table 9-1 Work zone widths\n|Speed|Width|\n|---|---|\n" + rows + "\n",
+        encoding="utf-8",
+    )
+    index = RetrievalIndex(dataclasses.replace(config, chunk_size=128, chunk_overlap=0), hash_embed)
+    index.refresh()
+
+    hits = index.retrieve("work zone widths", k=200)
+    table_hits = [h for h in hits if "|Speed|Width|" in h.text]
+    assert len(table_hits) == 1
+    assert "Table 9-1 Work zone widths" in table_hits[0].text
+    assert all(f"|{r}|{r}.5|" in table_hits[0].text for r in range(12))

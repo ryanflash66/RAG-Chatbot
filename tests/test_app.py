@@ -242,3 +242,29 @@ def test_check_ollama_reports_server_down(monkeypatch):
     monkeypatch.setattr(httpx, "get", refuse)
     with pytest.raises(RuntimeError, match="isn't running at http://localhost:11434"):
         app._check_ollama(load_config({}))
+
+
+# ---------------------------------------------------------------------------
+# Citation styles from other models
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("answer, expected", [
+    ("Florida uses > 3 inches 【2】.", [2]),
+    ("See ［1］ and ［3］.", [1, 3]),
+    ("Mixed [1] and 【2】.", [1, 2]),
+])
+def test_cited_indices_accepts_lenticular_and_fullwidth_brackets(answer, expected):
+    assert app._cited_indices(answer, 4) == expected
+
+
+def test_split_citations_normalises_to_square_brackets():
+    assert app._split_citations("It is 1.3【2】 or ［1, 3］.", 4) == "It is 1.3[2] or [1][3]."
+
+
+@pytest.mark.parametrize("answer", [
+    "The context does not cover it. [None]",
+    "The context does not cover it.【none】",
+    "The context does not cover it. [N/A]",
+])
+def test_split_citations_drops_empty_markers(answer):
+    assert app._split_citations(answer, 4) == "The context does not cover it."

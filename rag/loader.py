@@ -32,6 +32,7 @@ from llama_index.core import Document, SimpleDirectoryReader
 from llama_index.core.readers.base import BaseReader
 
 from rag.classify import classify
+from rag.tables import clean_markdown_tables
 
 
 @dataclass(frozen=True)
@@ -196,7 +197,7 @@ class _PdfMarkdownReader(BaseReader):
         pages = pymupdf4llm.to_markdown(str(file), page_chunks=True, show_progress=False)
         return [
             Document(
-                text=_PDF_MARKUP.sub("", page["text"]).replace("<br>", " "),
+                text=clean_markdown_tables(_PDF_MARKUP.sub("", page["text"]).replace("<br>", " ")),
                 metadata={
                     # "page" on pymupdf4llm's fallback path (no pymupdf.layout); both are 1-based.
                     "page_label": str(page["metadata"].get("page_number", page["metadata"].get("page"))),

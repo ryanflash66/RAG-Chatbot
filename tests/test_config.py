@@ -23,9 +23,9 @@ def test_defaults_resolve_against_repo_root():
     assert cfg.max_chat_history == 50
     assert cfg.auth_username is None
     assert cfg.auth_password is None
-    assert cfg.retrieval_top_k == 6
-    assert cfg.chunk_size == 512
-    assert cfg.chunk_overlap == 64
+    assert cfg.retrieval_top_k == 5
+    assert cfg.chunk_size == 1024
+    assert cfg.chunk_overlap == 128
 
 
 def test_relative_paths_ignore_working_directory(tmp_path, monkeypatch):
@@ -66,8 +66,8 @@ def test_ollama_base_url_trailing_slash_dropped():
 
 
 def test_retrieval_settings_overridden():
-    cfg = load_config({"RETRIEVAL_TOP_K": "3", "CHUNK_SIZE": "1024", "CHUNK_OVERLAP": "200"})
-    assert (cfg.retrieval_top_k, cfg.chunk_size, cfg.chunk_overlap) == (3, 1024, 200)
+    cfg = load_config({"RETRIEVAL_TOP_K": "3", "CHUNK_SIZE": "512", "CHUNK_OVERLAP": "64"})
+    assert (cfg.retrieval_top_k, cfg.chunk_size, cfg.chunk_overlap) == (3, 512, 64)
 
 
 @pytest.mark.parametrize(
@@ -86,6 +86,6 @@ def test_invalid_retrieval_settings_rejected(env, match):
 
 
 def test_default_retrieved_context_fits_ollama_window():
-    """6 chunks x 512 tokens leaves over 5k of the 8192-token window for template, question, answer."""
+    """5 chunks x 1024 tokens leaves over 3k of the 8192-token window for template, question, answer."""
     cfg = load_config({})
     assert 8192 - cfg.retrieval_top_k * cfg.chunk_size >= 2048

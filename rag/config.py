@@ -21,7 +21,10 @@ DEFAULT_MODELS = {"ollama": "qwen2.5:14b", "openrouter": "gpt-4o"}
 # window (app.OLLAMA_CONTEXT_WINDOW) is 8192 tokens; this leaves 2048 of it for
 # the prompt template, the question and the answer. RETRIEVAL_TOP_K x CHUNK_SIZE
 # must fit inside it, or Ollama silently truncates the prompt. The defaults
-# (6 x 512 = 3072) leave ample headroom.
+# (5 x 1024 = 5120) fit, chosen with eval/run_eval.py: with table-aware chunking
+# (rag/tables.py) whole tables fit in one chunk, which beat 6 x 512 on the table
+# questions. The embedding model reads only the first 512 tokens of a chunk, but
+# tables get chunks of their own, so they are embedded in full.
 MAX_RETRIEVED_TOKENS = 6144
 
 
@@ -58,9 +61,9 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> AppConfig:
     provider = env.get("LLM_PROVIDER", "ollama").strip().lower()
     if provider not in DEFAULT_MODELS:
         raise ValueError(f"LLM_PROVIDER must be one of {sorted(DEFAULT_MODELS)}, got {provider!r}")
-    top_k = int(env.get("RETRIEVAL_TOP_K", "6"))
-    chunk_size = int(env.get("CHUNK_SIZE", "512"))
-    chunk_overlap = int(env.get("CHUNK_OVERLAP", "64"))
+    top_k = int(env.get("RETRIEVAL_TOP_K", "5"))
+    chunk_size = int(env.get("CHUNK_SIZE", "1024"))
+    chunk_overlap = int(env.get("CHUNK_OVERLAP", "128"))
     if top_k < 1:
         raise ValueError(f"RETRIEVAL_TOP_K must be at least 1, got {top_k}")
     if chunk_size < 64:
