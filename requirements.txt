@@ -8,6 +8,7 @@ docx2txt
 # PDF pages as Markdown with tables kept as Markdown tables (AGPL-3.0)
 pymupdf4llm>=1.28
 llama-index-embeddings-huggingface
+sentence-transformers
 chromadb
 unstructured[doc,docx,ppt,pptx,pdf,image,xlsx,odt,rtf]
 xlrd

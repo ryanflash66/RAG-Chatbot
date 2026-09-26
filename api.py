@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from rag import loader
 from rag.config import AppConfig, load_config
-from rag.index import EmptyIndexError, NoDocumentsError, RetrievalIndex, make_embed_model
+from rag.index import EmptyIndexError, NoDocumentsError, RetrievalIndex, make_embed_model, make_reranker
 from rag.staging import UploadRejected, stage
 
 _indexes: Dict[AppConfig, RetrievalIndex] = {}
@@ -33,7 +33,7 @@ def get_index(config: AppConfig = Depends(get_config)) -> RetrievalIndex:
     with _indexes_lock:
         index = _indexes.get(config)
         if index is None:
-            index = RetrievalIndex(config, make_embed_model(config))
+            index = RetrievalIndex(config, make_embed_model(config), make_reranker(config))
             index.ensure_built()
             _indexes[config] = index
         return index

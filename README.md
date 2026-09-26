@@ -62,7 +62,7 @@ Dropping a file into `data/` does nothing until you run a refresh or ingest thro
 
 Indexing, embeddings, search and chat history all stay on your machine. What leaves it depends on `LLM_PROVIDER`:
 
-- **`ollama` (default):** no document text leaves the machine. The only outbound traffic is model downloads (Hugging Face for the embedding model, Ollama for the LLM) and library telemetry, which you can turn off (see the end of `.env.example`).
+- **`ollama` (default):** no document text leaves the machine. The only outbound traffic is model downloads (Hugging Face for the embedding and reranker models, Ollama for the LLM) and library telemetry, which you can turn off (see the end of `.env.example`).
 - **`openrouter`:** every chat question sends the question, the 4 best-matching passages and their file paths to OpenRouter, which passes them to the model's provider. Check OpenRouter's privacy settings if the documents are sensitive.
 
 `POST /api/query` never calls an LLM, so it's local with either provider.
@@ -79,7 +79,7 @@ curl localhost:8001/health
 ```
 
 - **Ingest:** the whole batch is validated before anything is written. Filenames are reduced to their base name. Uploading a file with the same name replaces the existing one. If the rebuild fails, the uploads are removed and any replaced files are restored.
-- **Query:** returns 503 until something has been indexed. `where` filters on the classification fields below. Each result has `text`, `source`, `score`, `incident_type`, `doc_domain`, plus `page` (the PDF page label, `null` for formats without pages) and `section` (the heading the chunk sits under, `null` when unknown), so a citation can point to where in the source the answer came from.
+- **Query:** returns 503 until something has been indexed. `where` filters on the classification fields below. Each result has `text`, `source`, `score` (the reranker's relevance score when reranking is on, otherwise vector similarity), `incident_type`, `doc_domain`, plus `page` (the PDF page label, `null` for formats without pages) and `section` (the heading the chunk sits under, `null` when unknown), so a citation can point to where in the source the answer came from.
 
 ## Document metadata
 

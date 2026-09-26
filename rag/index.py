@@ -4,6 +4,12 @@ The interface is refresh / retrieve / stats. Refresh only happens when asked.
 Retrieve never rebuilds and never writes. LlamaIndex node types stay inside this
 module; callers get plain Hit values.
 
+Retrieval is two-stage when a reranker is given: the vector search fetches
+`rerank_candidates` hits, a cross-encoder scores each (question, passage) pair,
+and the best `k` are returned. The small embedding model alone ranks table
+passages poorly (e.g. Table 9-1 came 10th for its own question); the
+cross-encoder puts it first.
+
 A refresh builds into a staging collection and swaps it in only once the build
 succeeds, so a failed refresh leaves the previous index serving queries.
 
@@ -17,7 +23,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 import chromadb
 from chromadb.errors import NotFoundError
@@ -59,16 +65,35 @@ class IndexStats:
     last_refresh_at: Optional[str]
 
 
+# Scores (question, passage) pairs; higher means more relevant.
+Reranker = Callable[[str, Sequence[str]], Sequence[float]]
+
+
 def make_embed_model(config: AppConfig):
     from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
     return HuggingFaceEmbedding(model_name=config.embedding_model)
 
 
+def make_reranker(config: AppConfig) -> Optional[Reranker]:
+    """A cross-encoder reranker for `config.rerank_model`, or None when reranking is off."""
+    if not config.rerank_model:
+        return None
+    from sentence_transformers import CrossEncoder
+
+    model = CrossEncoder(config.rerank_model, max_length=512)
+
+    def rerank(query: str, passages: Sequence[str]) -> Sequence[float]:
+        return [float(s) for s in model.predict([(query, p) for p in passages])]
+
+    return rerank
+
+
 class RetrievalIndex:
-    def __init__(self, config: AppConfig, embed_model: Any):
+    def __init__(self, config: AppConfig, embed_model: Any, reranker: Optional[Reranker] = None):
         self._config = config
         self._embed_model = embed_model
+        self._reranker = reranker
         self._lock = threading.RLock()
         config.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(path=str(config.chroma_persist_dir))
@@ -177,6 +202,7 @@ class RetrievalIndex:
             if where
             else None
         )
+        fetch = max(k, self._config.rerank_candidates) if self._reranker else k
         with self._lock:
             # One retry covers a collection swapped out by another instance mid-query.
             for attempt in range(2):
@@ -188,13 +214,13 @@ class RetrievalIndex:
                     embed_model=self._embed_model,
                 )
                 try:
-                    nodes = index.as_retriever(similarity_top_k=k, filters=filters).retrieve(query)
+                    nodes = index.as_retriever(similarity_top_k=fetch, filters=filters).retrieve(query)
                     break
                 except NotFoundError:
                     if attempt:
                         raise
 
-        return [
+        hits = [
             Hit(
                 text=nws.node.get_content().strip(),
                 score=nws.score,
@@ -202,6 +228,16 @@ class RetrievalIndex:
                 metadata=dict(nws.node.metadata),
             )
             for nws in nodes
+        ]
+        if not self._reranker or not hits:
+            return hits[:k]
+        # The reranker's score replaces the vector similarity; the latter is kept
+        # in metadata as "vector_score".
+        scores = self._reranker(query, [hit.text for hit in hits])
+        ranked = sorted(zip(scores, hits), key=lambda pair: pair[0], reverse=True)[:k]
+        return [
+            Hit(text=hit.text, score=score, source=hit.source, metadata={**hit.metadata, "vector_score": hit.score})
+            for score, hit in ranked
         ]
 
     def _delete_collection(self, name: str) -> None:
