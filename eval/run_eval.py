@@ -32,7 +32,6 @@ ROOT = EVAL_DIR.parent
 CASES_FILE = EVAL_DIR / "table_questions.json"
 EVAL_CHROMA_DIR = EVAL_DIR / ".chroma"
 EVAL_COLLECTION = "eval_docs"
-DEFAULT_TOP_K = 4  # app.TOP_K at the time of writing; --top-k overrides
 ANSWER_PREVIEW = 120
 # Ollama is shared and may queue requests; one retry on a timeout.
 LLM_ATTEMPTS = 2
@@ -189,7 +188,7 @@ class HarnessError(RuntimeError):
     """A setup problem reported as a one-line message rather than a traceback."""
 
 
-def run(provider: Optional[str], model: Optional[str], top_k: int, rebuild: bool) -> Dict[str, Any]:
+def run(provider: Optional[str], model: Optional[str], top_k: Optional[int], rebuild: bool) -> Dict[str, Any]:
     _configure_env(provider, model)
 
     import app
@@ -203,6 +202,8 @@ def run(provider: Optional[str], model: Optional[str], top_k: int, rebuild: bool
         llm = app._make_llm(config)
     except (RuntimeError, ValueError) as exc:  # Ollama down, model not pulled, bad provider, missing key
         raise HarnessError(str(exc)) from exc
+    # Same number of passages the chat app retrieves, unless --top-k overrides it.
+    top_k = top_k or config.retrieval_top_k
 
     index = RetrievalIndex(config, make_embed_model(config))
     try:
@@ -244,7 +245,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--provider", choices=["ollama", "openrouter"],
                         help="defaults to LLM_PROVIDER, as in the app")
     parser.add_argument("--model", help="defaults to MODEL_NAME, or the provider's default model")
-    parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
+    parser.add_argument("--top-k", type=int, help="defaults to RETRIEVAL_TOP_K, as in the app")
     parser.add_argument("--rebuild", action="store_true", help="rebuild eval/.chroma from DATA_DIR first")
     parser.add_argument("--json", type=Path, help="also write full results (answers included) to this file")
     args = parser.parse_args(argv)

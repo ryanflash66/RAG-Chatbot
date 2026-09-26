@@ -12,7 +12,7 @@ TEXT_EXTENSIONS = sorted(ext for ext, fmt in loader.FORMATS.items() if fmt.reade
 def test_every_format_has_a_known_reader_and_doc_type():
     for ext, fmt in loader.FORMATS.items():
         assert ext.startswith(".") and ext == ext.lower()
-        assert fmt.reader in {"default", "text", "unstructured"}
+        assert fmt.reader in {"default", "pdf", "text", "unstructured", "markdown", "sheets"}
         assert fmt.doc_type and fmt.doc_type != "other"
         assert fmt.requires in {None, "tesseract", "soffice", "pandoc"}
 
@@ -88,7 +88,7 @@ def test_docx_uses_default_reader(tmp_path):
     assert docs[0].metadata["doc_type"] == "word"
 
 
-def test_pptx_uses_default_reader(tmp_path):
+def test_pptx_yields_slide_text(tmp_path):
     pptx = pytest.importorskip("pptx")
     deck = pptx.Presentation()
     slide = deck.slides.add_slide(deck.slide_layouts[1])
@@ -99,6 +99,73 @@ def test_pptx_uses_default_reader(tmp_path):
 
     assert "Tabletop exercise" in " ".join(d.text for d in docs)
     assert docs[0].metadata["doc_type"] == "powerpoint"
+
+
+CURVE_TABLE = [
+    ["RADIUS", "40", "45", "50"],
+    ["2860", "1.1", "1.1", "1.1"],
+    ["1430", "1.2", "1.2", "--"],
+    ["380", "1.5", "--", ""],
+]
+
+
+def _write_pdf(path, pages):
+    """Write a PDF with one page per entry; an entry is a heading plus an optional ruled table."""
+    pymupdf = pytest.importorskip("pymupdf")
+    pdf = pymupdf.open()
+    for heading, rows in pages:
+        page = pdf.new_page()
+        page.insert_text((72, 72), heading, fontsize=12)
+        left, top, col_w, row_h = 72, 100, 80, 20
+        for r, row in enumerate(rows):
+            for c, cell in enumerate(row):
+                rect = pymupdf.Rect(left + c * col_w, top + r * row_h, left + (c + 1) * col_w, top + (r + 1) * row_h)
+                page.draw_rect(rect, color=(0, 0, 0), width=0.8)
+                if cell:
+                    page.insert_text((rect.x0 + 4, rect.y1 - 6), cell, fontsize=10)
+    pdf.save(path)
+
+
+def _table_rows(markdown):
+    rows = [line.strip() for line in markdown.splitlines() if line.strip().startswith("|")]
+    # Drop only the outer pipes: a trailing empty cell renders as "||".
+    return [[cell.strip() for cell in row[1:-1].split("|")] for row in rows if not set(row) <= set("|-: ")]
+
+
+def test_pdf_tables_become_aligned_markdown_tables(tmp_path):
+    _write_pdf(tmp_path / "manual.pdf", [("Table 3-2 Horizontal Curve Adjustments", CURVE_TABLE)])
+
+    docs = loader.load(tmp_path)
+
+    assert len(docs) == 1
+    assert "Table 3-2 Horizontal Curve Adjustments" in docs[0].text
+    assert _table_rows(docs[0].text) == CURVE_TABLE
+    assert docs[0].metadata["doc_type"] == "pdf"
+    assert docs[0].metadata["source"] == "manual.pdf"
+
+
+def test_pdf_yields_one_document_per_page_with_page_label(tmp_path):
+    _write_pdf(tmp_path / "manual.pdf", [("Chapter one intro", []), ("Chapter two table", CURVE_TABLE), ("Chapter three end", [])])
+
+    docs = loader.load(tmp_path)
+
+    assert [d.metadata["page_label"] for d in docs] == ["1", "2", "3"]
+    assert "Chapter one intro" in docs[0].text
+    assert "Chapter two table" in docs[1].text and _table_rows(docs[1].text) == CURVE_TABLE
+    assert "Chapter three end" in docs[2].text
+    assert all(d.metadata["file_name"] == "manual.pdf" for d in docs)
+
+
+def test_pdf_reader_strips_inline_markup_and_accepts_legacy_page_key(tmp_path, monkeypatch):
+    pymupdf4llm = pytest.importorskip("pymupdf4llm")
+    chunks = [{"text": "<mark>Part 2</mark> �\n|Iowa|10 inches<br>(informal)|", "metadata": {"page": 7}}]
+    monkeypatch.setattr(pymupdf4llm, "to_markdown", lambda *_args, **_kwargs: chunks)
+    (tmp_path / "manual.pdf").write_bytes(b"%PDF-1.7")
+
+    docs = loader.load(tmp_path)
+
+    assert docs[0].text == "Part 2 \n|Iowa|10 inches (informal)|"
+    assert docs[0].metadata["page_label"] == "7"
 
 
 def test_html_uses_unstructured(tmp_path):
@@ -123,7 +190,7 @@ def test_eml_uses_unstructured(tmp_path):
     assert docs[0].metadata["doc_type"] == "email"
 
 
-def test_xlsx_uses_unstructured(tmp_path):
+def test_xlsx_yields_sheet_text(tmp_path):
     openpyxl = pytest.importorskip("openpyxl")
     book = openpyxl.Workbook()
     book.active.append(["hostname", "owner"])
@@ -165,3 +232,154 @@ def test_legacy_doc_via_libreoffice(tmp_path):
     docs = loader.load(tmp_path / "out")
 
     assert "Legacy procedure text." in " ".join(d.text for d in docs)
+
+
+# --- section metadata ---------------------------------------------------------
+
+
+def test_document_metadata_omits_section_unless_given():
+    assert "section" not in loader.document_metadata("notes.txt")
+    assert loader.document_metadata("notes.txt", section="Intro")["section"] == "Intro"
+
+
+@pytest.mark.parametrize(
+    "path, reader_metadata, expected",
+    [
+        ("manual.pdf", {"page_label": "12"}, "Page 12"),
+        ("manual.pdf", {"page_label": "iv"}, "Page iv"),
+        ("deck.pptx", {"page_label": 3}, "Slide 3"),
+        ("playbook.md", {"section": "Ransomware > Containment"}, "Ransomware > Containment"),
+        ("manual.pdf", {}, None),
+        ("notes.txt", {"page_label": "1"}, None),
+    ],
+)
+def test_section_for(path, reader_metadata, expected):
+    assert loader.section_for(path, reader_metadata) == expected
+
+
+def test_markdown_sections_follow_heading_path():
+    text = (
+        "Preamble line.\n"
+        "# Ransomware Playbook\n"
+        "Overview text.\n"
+        "## Containment\n"
+        "Isolate hosts.\n"
+        "```\n# not a heading\n```\n"
+        "### Network\n"
+        "Block SMB.\n"
+        "## Recovery\n"
+        "Restore backups.\n"
+    )
+
+    sections = loader.markdown_sections(text)
+
+    assert [s for s, _ in sections] == [
+        None,
+        "Ransomware Playbook",
+        "Ransomware Playbook > Containment",
+        "Ransomware Playbook > Containment > Network",
+        "Ransomware Playbook > Recovery",
+    ]
+    containment = dict(sections)["Ransomware Playbook > Containment"]
+    assert containment.startswith("## Containment\n")
+    assert "# not a heading" in containment and "Isolate hosts." in containment
+
+
+def test_markdown_sections_skip_heading_only_sections():
+    sections = loader.markdown_sections("# Playbook\n\n## Containment\nIsolate hosts.\n")
+
+    assert [s for s, _ in sections] == ["Playbook > Containment"]
+
+
+def test_markdown_sections_keep_trailing_hash_in_heading_text():
+    sections = loader.markdown_sections("# Learn C#\nbody\n## Closed ##\nmore\n")
+
+    assert [s for s, _ in sections] == ["Learn C#", "Learn C# > Closed"]
+
+
+def test_markdown_sections_nested_fences_hide_headings():
+    text = "# Top\n````md\n```\n# inner comment\n```\n````\nafter\n~~~\n# tilde comment\n~~~\n"
+
+    sections = loader.markdown_sections(text)
+
+    assert [s for s, _ in sections] == ["Top"]
+    assert "# inner comment" in sections[0][1] and "# tilde comment" in sections[0][1]
+
+
+def test_markdown_documents_carry_heading_section(tmp_path):
+    (tmp_path / "ransomware.md").write_text(
+        "# Ransomware Playbook\n\n## Containment\n\nIsolate infected hosts.\n\n## Recovery\n\nRestore from backups.\n",
+        encoding="utf-8",
+    )
+
+    docs = loader.load(tmp_path)
+
+    by_section = {d.metadata["section"]: d.text for d in docs}
+    assert set(by_section) == {"Ransomware Playbook > Containment", "Ransomware Playbook > Recovery"}
+    assert "Isolate infected hosts." in by_section["Ransomware Playbook > Containment"]
+    assert "Restore from backups." in by_section["Ransomware Playbook > Recovery"]
+    assert all(d.metadata["source"] == "ransomware.md" for d in docs)
+
+
+def test_markdown_without_headings_has_no_section(tmp_path):
+    (tmp_path / "notes.md").write_text("just some notes", encoding="utf-8")
+
+    (doc,) = loader.load(tmp_path)
+
+    assert "section" not in doc.metadata
+
+
+def test_pptx_documents_carry_slide_section(tmp_path):
+    pptx = pytest.importorskip("pptx")
+    deck = pptx.Presentation()
+    for title in ("Detection", "Escalation"):
+        deck.slides.add_slide(deck.slide_layouts[1]).shapes.title.text = title
+    deck.save(tmp_path / "tabletop.pptx")
+
+    docs = loader.load(tmp_path)
+
+    sections = {d.metadata["section"]: d.text for d in docs}
+    assert "Detection" in sections["Slide 1"]
+    assert "Escalation" in sections["Slide 2"]
+
+
+def test_xlsx_documents_carry_sheet_section(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    book = openpyxl.Workbook()
+    book.active.title = "Contacts"
+    book.active.append(["team", "phone"])
+    book.active.append(["soc", "555-0100"])
+    assets = book.create_sheet("Assets")
+    assets.append(["hostname", "owner"])
+    assets.append(["dc01", "infra-team"])
+    book.save(tmp_path / "inventory.xlsx")
+
+    docs = loader.load(tmp_path)
+
+    sections = {d.metadata["section"]: d.text for d in docs}
+    assert set(sections) == {"Contacts", "Assets"}
+    assert "555-0100" in sections["Contacts"] and "infra-team" not in sections["Contacts"]
+    assert "infra-team" in sections["Assets"]
+
+
+def test_pdf_documents_carry_page_section(tmp_path):
+    pymupdf = pytest.importorskip("pymupdf")
+    pdf = pymupdf.open()
+    for text in ("Page one text.", "Page two text."):
+        pdf.new_page().insert_text((72, 72), text)
+    pdf.save(tmp_path / "manual.pdf")
+
+    docs = loader.load(tmp_path)
+
+    sections = {d.metadata["section"]: d.text for d in docs}
+    assert "Page one text." in sections["Page 1"]
+    assert "Page two text." in sections["Page 2"]
+    assert all("page_label" in d.metadata for d in docs)
+
+
+def test_plain_text_has_no_section(tmp_path):
+    (tmp_path / "notes.txt").write_text("rotate keys", encoding="utf-8")
+
+    (doc,) = loader.load(tmp_path)
+
+    assert "section" not in doc.metadata

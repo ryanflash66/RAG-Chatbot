@@ -10,7 +10,7 @@ import hmac
 import re
 import uuid
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import chainlit as cl
 from dotenv import load_dotenv
@@ -19,11 +19,11 @@ from chat_history import ChatHistoryManager
 from rag.config import AppConfig, load_config
 from rag.index import EmptyIndexError, Hit, RetrievalIndex, make_embed_model
 
-TOP_K = 4
 RECENT_CHATS_LIMIT = 10
 
-PROMPT_TEMPLATE = """Answer the question using only the context below.
-If the context does not contain the answer, say so.
+PROMPT_TEMPLATE = """Answer the question using only the numbered context blocks below.
+Cite the blocks that support your answer inline by number, like [1] or [2].
+If the context does not contain the answer, say so and cite nothing.
 
 Context:
 {context}
@@ -132,9 +132,115 @@ def _history() -> ChatHistoryManager:
     return ChatHistoryManager(config.chat_storage_dir, config.max_chat_history, user_id)
 
 
+UNKNOWN_SOURCE = "unknown source"
+EN_DASH = "–"
+
+
+def _page_label(hit: Hit) -> Optional[str]:
+    label = str(hit.metadata.get("page_label") or "").strip()
+    return label or None
+
+
+def _locator(hit: Hit) -> str:
+    """'file, p. N' for one Hit; just the file when it has no page label."""
+    source = hit.source or UNKNOWN_SOURCE
+    page = _page_label(hit)
+    return f"{source}, p. {page}" if page else source
+
+
 def _build_prompt(question: str, hits: List[Hit]) -> str:
-    context = "\n\n---\n\n".join(f"[{hit.source}]\n{hit.text}" for hit in hits)
+    context = "\n\n---\n\n".join(
+        f"[{n}] ({_locator(hit)})\n{hit.text}" for n, hit in enumerate(hits, start=1)
+    )
     return PROMPT_TEMPLATE.format(context=context, question=question)
+
+
+# One bracketed citation: "[1]", "[1, 2]", "[1; 2]", "[1-3]", "[1–3]".
+# Adjacent markers such as "[1][2]" match one at a time.
+_CITATION = re.compile(r"\[\s*(\d+(?:\s*[,;\-–]\s*\d+)*)\s*\]")
+_RANGE = re.compile(r"(\d+)\s*[\-–]\s*(\d+)")
+
+
+def _marker_numbers(marker: "re.Match[str]", n_hits: int) -> List[int]:
+    """Valid block numbers in one citation marker; out-of-range and malformed parts are dropped."""
+    numbers: List[int] = []
+    for part in re.split(r"\s*[,;]\s*", marker.group(1)):
+        span = _RANGE.fullmatch(part)
+        if span:
+            low, high = int(span.group(1)), int(span.group(2))
+            candidates = range(low, high + 1) if low <= high <= n_hits else []
+        else:
+            candidates = [int(part)] if part.isdigit() else []  # e.g. "1-2-3"
+        numbers += [n for n in candidates if 1 <= n <= n_hits and n not in numbers]
+    return numbers
+
+
+def _cited_indices(answer: str, n_hits: int) -> List[int]:
+    """1-based context block numbers cited in the answer, in order of first mention.
+
+    Numbers outside 1..n_hits (made-up blocks, bracketed years) are dropped.
+    """
+    cited: List[int] = []
+    for marker in _CITATION.finditer(answer):
+        cited += [n for n in _marker_numbers(marker, n_hits) if n not in cited]
+    return cited
+
+
+def _split_citations(answer: str, n_hits: int) -> str:
+    """Rewrite grouped markers ("[1, 3]", "[2-4]") as "[1][3]", "[2][3][4]".
+
+    Chainlit links only text that exactly matches an element name, so each
+    passage needs its own "[n]". Markers with no valid number are left alone.
+    """
+    def expand(marker: "re.Match[str]") -> str:
+        numbers = _marker_numbers(marker, n_hits)
+        return "".join(f"[{n}]" for n in numbers) if numbers else marker.group(0)
+
+    return _CITATION.sub(expand, answer)
+
+
+def _page_ranges(labels: List[str]) -> str:
+    """'p. 64', 'pp. 58–59' or 'pp. 12, 58–60'; non-numeric labels are listed as-is."""
+    numeric = sorted({int(label) for label in labels if label.isdigit()})
+    runs: List[List[int]] = []
+    for page in numeric:
+        if runs and page == runs[-1][-1] + 1:
+            runs[-1].append(page)
+        else:
+            runs.append([page])
+    parts = [label for label in dict.fromkeys(labels) if not label.isdigit()]
+    parts += [str(run[0]) if len(run) == 1 else f"{run[0]}{EN_DASH}{run[-1]}" for run in runs]
+    prefix = "p." if len(parts) == 1 and EN_DASH not in parts[0] else "pp."
+    return f"{prefix} {', '.join(parts)}"
+
+
+def _format_sources(hits: List[Hit], cited: List[int]) -> Optional[str]:
+    """A Sources line naming only the cited passages, pages grouped per file.
+
+    None when nothing was cited, so an unanswered question shows no sources.
+    """
+    pages_by_source: Dict[str, List[str]] = {}
+    for n in cited:
+        hit = hits[n - 1]
+        pages = pages_by_source.setdefault(hit.source or UNKNOWN_SOURCE, [])
+        page = _page_label(hit)
+        if page:
+            pages.append(page)
+    if not pages_by_source:
+        return None
+    entries = [
+        f"`{source}`, {_page_ranges(pages)}" if pages else f"`{source}`"
+        for source, pages in pages_by_source.items()
+    ]
+    return "**Sources:** " + "; ".join(entries)
+
+
+def _cited_passages(hits: List[Hit], cited: List[int]) -> List[Tuple[str, str]]:
+    """(name, content) per cited passage, named "[n]" like its marker in the answer.
+
+    Sent as side-panel elements, so Chainlit links each "[n]" in the answer to its passage.
+    """
+    return [(f"[{n}]", f"**{_locator(hits[n - 1])}**\n\n{hits[n - 1].text}") for n in cited]
 
 
 def _history_actions(sessions: List[Dict], limit: int = RECENT_CHATS_LIMIT) -> List[cl.Action]:
@@ -223,7 +329,7 @@ async def main(message: cl.Message):
             _record("user_message", message.content, "User")
 
         try:
-            hits = await cl.make_async(index.retrieve)(message.content, k=TOP_K)
+            hits = await cl.make_async(index.retrieve)(message.content, k=config.retrieval_top_k)
         except EmptyIndexError:
             await cl.Message(
                 content="📭 The index is empty. Add documents via `POST /api/ingest` or run `py -m rag refresh`.",
@@ -236,9 +342,15 @@ async def main(message: cl.Message):
         async for chunk in stream:
             await response_message.stream_token(token=chunk.delta or "")
 
-        sources = sorted({hit.source for hit in hits if hit.source})
+        response_message.content = _split_citations(response_message.content, len(hits))
+        cited = _cited_indices(response_message.content, len(hits))
+        sources = _format_sources(hits, cited)
         if sources:
-            await response_message.stream_token(token="\n\n**Sources:** " + ", ".join(f"`{s}`" for s in sources))
+            await response_message.stream_token(token="\n\n" + sources)
+        response_message.elements = [
+            cl.Text(name=name, content=content, display="side")
+            for name, content in _cited_passages(hits, cited)
+        ]
 
         await response_message.send()
 
