@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Mapping, Optional
 import chromadb
 from chromadb.errors import NotFoundError
 from llama_index.core import StorageContext, VectorStoreIndex
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
@@ -139,6 +140,12 @@ class RetrievalIndex:
                         vector_store=ChromaVectorStore(chroma_collection=staging)
                     ),
                     embed_model=self._embed_model,
+                    transformations=[
+                        SentenceSplitter(
+                            chunk_size=self._config.chunk_size,
+                            chunk_overlap=self._config.chunk_overlap,
+                        )
+                    ],
                 )
             except Exception:
                 self._delete_collection(staging_name)

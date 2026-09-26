@@ -19,7 +19,6 @@ from chat_history import ChatHistoryManager
 from rag.config import AppConfig, load_config
 from rag.index import EmptyIndexError, Hit, RetrievalIndex, make_embed_model
 
-TOP_K = 4
 RECENT_CHATS_LIMIT = 10
 
 PROMPT_TEMPLATE = """Answer the question using only the numbered context blocks below.
@@ -330,7 +329,7 @@ async def main(message: cl.Message):
             _record("user_message", message.content, "User")
 
         try:
-            hits = await cl.make_async(index.retrieve)(message.content, k=TOP_K)
+            hits = await cl.make_async(index.retrieve)(message.content, k=config.retrieval_top_k)
         except EmptyIndexError:
             await cl.Message(
                 content="📭 The index is empty. Add documents via `POST /api/ingest` or run `py -m rag refresh`.",
