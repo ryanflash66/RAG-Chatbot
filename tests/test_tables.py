@@ -117,3 +117,18 @@ def test_text_without_tables_matches_sentence_splitting():
     chunks = tables.split_text(text, chunk_size=100, chunk_overlap=10)
     assert len(chunks) > 1
     assert "prose0." in chunks[0] and "prose499." in chunks[-1]
+
+
+def test_bracketed_values_in_unit_columns_are_unwrapped():
+    table = "\n".join([
+        "|Speed (km/h)|Widths (m)|Speed [mph]|Widths [ft]|",
+        "|---|---|---|---|",
+        "|90|7|[55]|[23]|",
+        "|50 - 60|4|[30 - 40]|[13]|",
+    ])
+    assert tables.clean_markdown_tables(table).split("\n")[2:] == ["|90|7|55|23|", "|50 - 60|4|30 - 40|13|"]
+
+
+def test_brackets_kept_outside_unit_columns_and_when_only_partly_bracketed():
+    table = "|Item [ref]|Note|\n|---|---|\n|[a] b|[keep]|"
+    assert tables.clean_markdown_tables(table) == table

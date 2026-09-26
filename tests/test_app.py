@@ -268,3 +268,9 @@ def test_split_citations_normalises_to_square_brackets():
 ])
 def test_split_citations_drops_empty_markers(answer):
     assert app._split_citations(answer, 4) == "The context does not cover it."
+
+
+def test_prompt_asks_for_units_from_the_column_header():
+    prompt = app._build_prompt("What width at 55 mph?", [])
+    assert "units the question uses" in prompt
+    assert "Always state the unit" in prompt
