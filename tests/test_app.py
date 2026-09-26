@@ -42,9 +42,89 @@ def test_build_prompt_includes_sources_and_question():
     ]
     prompt = app._build_prompt("What first?", hits)
 
-    assert "[playbooks/ransomware.md]\nIsolate the host." in prompt
-    assert "[phishing.md]\nReset credentials." in prompt
+    assert "[1] (playbooks/ransomware.md)\nIsolate the host." in prompt
+    assert "[2] (phishing.md)\nReset credentials." in prompt
     assert prompt.rstrip().endswith("Question: What first?\nAnswer:")
+
+
+def test_build_prompt_numbers_blocks_with_page_labels():
+    hits = [
+        Hit(text="Table 17", score=0.9, source="manual.pdf", metadata={"page_label": "64"}),
+        Hit(text="No page", score=0.8, source="notes.md", metadata={"page_label": ""}),
+        Hit(text="Orphan", score=0.7, source=None),
+    ]
+    prompt = app._build_prompt("Q?", hits)
+
+    assert "[1] (manual.pdf, p. 64)\nTable 17" in prompt
+    assert "[2] (notes.md)\nNo page" in prompt
+    assert "[3] (unknown source)\nOrphan" in prompt
+    assert "cite nothing" in prompt
+
+
+@pytest.mark.parametrize("answer,n_hits,expected", [
+    ("Use Table 17 [2].", 4, [2]),
+    ("Both apply [1][3], see also [1].", 4, [1, 3]),
+    ("Both apply [3, 1].", 4, [3, 1]),
+    ("Both apply [1;2].", 4, [1, 2]),
+    ("Pages [2-4] and [1–2].", 4, [2, 3, 4, 1]),
+    ("Made up [7], a year [2024], a zero [0].", 4, []),
+    ("Mixed [2, 9].", 4, [2]),
+    ("Range past the end [3-9].", 4, []),
+    ("Malformed [1-2-3] [ 2 ] [a] [] [1,] [,1]", 4, [2]),
+    ("The context doesn't contain that.", 4, []),
+    ("Nothing to cite [1].", 0, []),
+])
+def test_cited_indices(answer, n_hits, expected):
+    assert app._cited_indices(answer, n_hits) == expected
+
+
+@pytest.mark.parametrize("answer,expected", [
+    ("Both [1, 3] and [2-4].", "Both [1][3] and [2][3][4]."),
+    ("Keep [2] and [1][2].", "Keep [2] and [1][2]."),
+    ("Drop bad parts [2, 9].", "Drop bad parts [2]."),
+    ("Leave [2024] and [a] alone.", "Leave [2024] and [a] alone."),
+])
+def test_split_citations(answer, expected):
+    assert app._split_citations(answer, 4) == expected
+
+
+def _hit(source, page=None):
+    return Hit(text=f"{source} p{page}", score=1.0, source=source,
+               metadata={"page_label": page} if page is not None else {})
+
+
+def test_format_sources_lists_only_cited_passages():
+    hits = [_hit("manual.pdf", "64"), _hit("other.pdf", "3")]
+
+    assert app._format_sources(hits, [1]) == "**Sources:** `manual.pdf`, p. 64"
+
+
+def test_format_sources_groups_pages_per_file():
+    hits = [
+        _hit("manual.pdf", "59"), _hit("guide.md"), _hit("manual.pdf", "58"),
+        _hit("manual.pdf", "12"), _hit("manual.pdf", "59"), _hit("manual.pdf", "iv"),
+    ]
+
+    assert app._format_sources(hits, [1, 3, 5]) == "**Sources:** `manual.pdf`, pp. 58–59"
+    assert app._format_sources(hits, [4, 1, 2, 3]) == (
+        "**Sources:** `manual.pdf`, pp. 12, 58–59; `guide.md`"
+    )
+    assert app._format_sources(hits, [6, 4]) == "**Sources:** `manual.pdf`, pp. iv, 12"
+
+
+def test_format_sources_none_without_citations():
+    assert app._format_sources([_hit("manual.pdf", "64")], []) is None
+
+
+def test_cited_passages_are_named_like_the_markers():
+    hits = [_hit("manual.pdf", "64"), _hit("guide.md")]
+
+    passages = app._cited_passages(hits, [2, 1])
+
+    assert passages == [
+        ("[2]", "**guide.md**\n\nguide.md pNone"),
+        ("[1]", "**manual.pdf, p. 64**\n\nmanual.pdf p64"),
+    ]
 
 
 def test_history_actions_payloads_and_cap():
