@@ -22,11 +22,11 @@ from typing import Any, Dict, List, Mapping, Optional
 import chromadb
 from chromadb.errors import NotFoundError
 from llama_index.core import StorageContext, VectorStoreIndex
-from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
 from rag import loader
+from rag.tables import TableAwareSplitter
 from rag.config import AppConfig
 
 
@@ -140,8 +140,9 @@ class RetrievalIndex:
                         vector_store=ChromaVectorStore(chroma_collection=staging)
                     ),
                     embed_model=self._embed_model,
+                    # Tables are never cut mid-row or separated from their headers.
                     transformations=[
-                        SentenceSplitter(
+                        TableAwareSplitter(
                             chunk_size=self._config.chunk_size,
                             chunk_overlap=self._config.chunk_overlap,
                         )
