@@ -155,9 +155,12 @@ def _build_prompt(question: str, hits: List[Hit]) -> str:
     return PROMPT_TEMPLATE.format(context=context, question=question)
 
 
-# One bracketed citation: "[1]", "[1, 2]", "[1; 2]", "[1-3]", "[1–3]".
+# One bracketed citation: "[1]", "[1, 2]", "[1; 2]", "[1-3]", "[1–3]". Some models
+# (gpt-oss) use lenticular or full-width brackets instead: "【2】", "［2］".
 # Adjacent markers such as "[1][2]" match one at a time.
-_CITATION = re.compile(r"\[\s*(\d+(?:\s*[,;\-–]\s*\d+)*)\s*\]")
+_CITATION = re.compile(r"[\[【［]\s*(\d+(?:\s*[,;\-–]\s*\d+)*)\s*[\]】］]")
+# Non-citations the model sometimes emits when nothing applies, e.g. "[None]".
+_EMPTY_CITATION = re.compile(r"\s*[\[【［]\s*(?:none|n/?a)\s*[\]】］]", re.IGNORECASE)
 _RANGE = re.compile(r"(\d+)\s*[\-–]\s*(\d+)")
 
 
@@ -187,16 +190,17 @@ def _cited_indices(answer: str, n_hits: int) -> List[int]:
 
 
 def _split_citations(answer: str, n_hits: int) -> str:
-    """Rewrite grouped markers ("[1, 3]", "[2-4]") as "[1][3]", "[2][3][4]".
+    """Rewrite markers as one "[n]" each: "[1, 3]" -> "[1][3]", "【2】" -> "[2]".
 
     Chainlit links only text that exactly matches an element name, so each
-    passage needs its own "[n]". Markers with no valid number are left alone.
+    passage needs its own "[n]". Markers with no valid number are left alone;
+    empty ones such as "[None]" are removed.
     """
     def expand(marker: "re.Match[str]") -> str:
         numbers = _marker_numbers(marker, n_hits)
         return "".join(f"[{n}]" for n in numbers) if numbers else marker.group(0)
 
-    return _CITATION.sub(expand, answer)
+    return _CITATION.sub(expand, _EMPTY_CITATION.sub("", answer))
 
 
 def _page_ranges(labels: List[str]) -> str:
