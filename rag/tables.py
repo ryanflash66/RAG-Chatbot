@@ -79,8 +79,42 @@ def _merge_spanning_header(rows: List[str]) -> List[str]:
     return [_row(merged), rows[1]] + rows[3:]
 
 
+_BRACKETED = re.compile(r"^\s*\[([^\[\]]+)\]\s*$")
+
+
+def _unwrap_bracketed_units(rows: List[str]) -> List[str]:
+    """Drop the brackets around values in columns whose header names a unit in brackets.
+
+    Manuals often print US customary values in brackets next to metric ones:
+
+        |Speed (km/h)|Widths (m)|Speed [mph]|Widths [ft]|
+        |90|7|[55]|[23]|
+
+    The brackets are a typographic convention, but they stop models matching
+    "55 mph" or "30–40 mph" to "[55]" / "[30 - 40]". Values become "55" and
+    "23", while the header keeps saying which unit each column is in.
+    """
+    if len(rows) < 3 or not is_separator(rows[1]):
+        return rows
+    header = cells(rows[0])
+    unit_columns = {i for i, cell in enumerate(header) if re.search(r"\[[^\]]+\]", cell)}
+    if not unit_columns:
+        return rows
+    out = rows[:2]
+    for row in rows[2:]:
+        values = cells(row)
+        if len(values) != len(header):
+            out.append(row)
+            continue
+        out.append(_row([
+            _BRACKETED.sub(r"\1", value) if i in unit_columns else value
+            for i, value in enumerate(values)
+        ]))
+    return out
+
+
 def clean_markdown_tables(text: str) -> str:
-    """Tidy every pipe table in `text` (see `_merge_spanning_header`)."""
+    """Tidy every pipe table in `text` (see `_merge_spanning_header`, `_unwrap_bracketed_units`)."""
     lines = text.split("\n")
     out: List[str] = []
     i = 0
@@ -89,7 +123,7 @@ def clean_markdown_tables(text: str) -> str:
             j = i
             while j < len(lines) and is_table_line(lines[j]):
                 j += 1
-            out.extend(_merge_spanning_header(lines[i:j]))
+            out.extend(_unwrap_bracketed_units(_merge_spanning_header(lines[i:j])))
             i = j
         else:
             out.append(lines[i])

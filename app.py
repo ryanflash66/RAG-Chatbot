@@ -24,6 +24,10 @@ RECENT_CHATS_LIMIT = 10
 PROMPT_TEMPLATE = """Answer the question using only the numbered context blocks below.
 Cite the blocks that support your answer inline by number, like [1] or [2].
 If the context does not contain the answer, say so and cite nothing.
+When reading a table, find the row and the column that match the question, and
+take the unit from that column's header. If a table gives the same value in
+several units (for example metric, then US customary in [brackets]), answer in
+the units the question uses. Always state the unit.
 
 Context:
 {context}
