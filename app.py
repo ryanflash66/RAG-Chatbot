@@ -5,12 +5,13 @@ Chainlit entrypoint: an adapter over the shared Retrieval index plus an LLM.
 Nothing heavy runs at import time. The index, embedding model and LLM are
 created on the first chat session.
 """
+import asyncio
 import functools
 import hmac
 import re
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 import chainlit as cl
 from dotenv import load_dotenv
@@ -78,6 +79,9 @@ def _make_llm(config: AppConfig):
             temperature=config.temperature,
             context_window=OLLAMA_CONTEXT_WINDOW,
             request_timeout=OLLAMA_REQUEST_TIMEOUT,
+            # Fewer reloads: each load is ~30 s for a large model and is when the
+            # sporadic CUDA crash below happens.
+            keep_alive=config.ollama_keep_alive,
         )
 
     if not config.openrouter_api_key:
@@ -95,6 +99,39 @@ def _make_llm(config: AppConfig):
 def _model_label(config: AppConfig) -> str:
     where = "local, via Ollama" if config.llm_provider == "ollama" else "remote, via OpenRouter"
     return f"{config.model_name} ({where})"
+
+
+# Ollama's model process sometimes crashes while loading a model onto the GPU
+# ("llama-server process has terminated ... CUDA error: shared object
+# initialization failed"). Ollama reloads it on the next request, so one retry
+# turns that into a slower answer instead of an error.
+_MODEL_CRASH = re.compile(r"llama-server process has terminated|CUDA error", re.IGNORECASE)
+LLM_RETRY_DELAY = 3.0
+
+
+def _is_model_crash(exc: BaseException) -> bool:
+    return bool(_MODEL_CRASH.search(str(exc)))
+
+
+async def _stream_answer(llm, prompt: str, on_token: Callable[[str], Awaitable[None]]) -> None:
+    """Stream the LLM's answer into on_token, retrying once if the model crashed while loading.
+
+    Only a failure before the first token is retried; a crash mid-answer is
+    raised, since retrying would repeat text the user has already seen.
+    """
+    for attempt in range(2):
+        started = False
+        try:
+            stream = await llm.astream_complete(prompt)
+            async for chunk in stream:
+                started = True
+                await on_token(chunk.delta or "")
+            return
+        except Exception as exc:
+            if attempt or started or not _is_model_crash(exc):
+                raise
+            print(f"LLM model process crashed while loading; retrying once: {exc}")
+            await asyncio.sleep(LLM_RETRY_DELAY)
 
 
 @functools.lru_cache(maxsize=1)
@@ -346,9 +383,11 @@ async def main(message: cl.Message):
             return
 
         response_message = cl.Message(content="")
-        stream = await llm.astream_complete(_build_prompt(message.content, hits))
-        async for chunk in stream:
-            await response_message.stream_token(token=chunk.delta or "")
+        await _stream_answer(
+            llm,
+            _build_prompt(message.content, hits),
+            lambda token: response_message.stream_token(token=token),
+        )
 
         response_message.content = _split_citations(response_message.content, len(hits))
         cited = _cited_indices(response_message.content, len(hits))

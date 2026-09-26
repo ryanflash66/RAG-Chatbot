@@ -17,6 +17,7 @@ def test_defaults_resolve_against_repo_root():
     assert cfg.llm_provider == "ollama"
     assert cfg.model_name == "qwen2.5:14b"
     assert cfg.ollama_base_url == "http://localhost:11434"
+    assert cfg.ollama_keep_alive == "30m"
     assert cfg.temperature == 0.0
     assert cfg.openrouter_api_key is None
     assert cfg.chat_history_enabled is True

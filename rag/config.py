@@ -47,6 +47,8 @@ class AppConfig:
     model_name: str
     temperature: float
     ollama_base_url: str
+    # How long Ollama keeps the model loaded after a request ("30m", "-1" = forever).
+    ollama_keep_alive: str
     openrouter_api_key: Optional[str]
     chat_history_enabled: bool
     max_chat_history: int
@@ -97,6 +99,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> AppConfig:
         model_name=env.get("MODEL_NAME") or DEFAULT_MODELS[provider],
         temperature=float(env.get("TEMPERATURE", "0")),
         ollama_base_url=env.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/"),
+        ollama_keep_alive=env.get("OLLAMA_KEEP_ALIVE", "30m").strip() or "30m",
         openrouter_api_key=env.get("OPENROUTER_API_KEY") or None,
         chat_history_enabled=env.get("ENABLE_CHAT_HISTORY", "true").lower() == "true",
         max_chat_history=int(env.get("MAX_CHAT_HISTORY", "50")),

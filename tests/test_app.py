@@ -274,3 +274,87 @@ def test_prompt_asks_for_units_from_the_column_header():
     prompt = app._build_prompt("What width at 55 mph?", [])
     assert "units the question uses" in prompt
     assert "Always state the unit" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Ollama model-crash retry and keep_alive
+# ---------------------------------------------------------------------------
+
+CRASH = RuntimeError(
+    "llama-server process has terminated: exit status 0xc0000409: ...: "
+    "CUDA error: shared object initialization failed (status code: 500)"
+)
+
+
+class _Chunk:
+    def __init__(self, delta):
+        self.delta = delta
+
+
+class _FakeLLM:
+    """astream_complete raises the queued errors in turn, then streams `tokens`.
+
+    An error given as ("mid", exc) is raised after the first token instead.
+    """
+
+    def __init__(self, errors, tokens=("23", " ft")):
+        self.errors = list(errors)
+        self.tokens = tokens
+        self.calls = 0
+
+    async def astream_complete(self, prompt):
+        self.calls += 1
+        error = self.errors.pop(0) if self.errors else None
+        if error is not None and not isinstance(error, tuple):
+            raise error
+
+        async def gen():
+            for i, token in enumerate(self.tokens):
+                if i == 1 and isinstance(error, tuple):
+                    raise error[1]
+                yield _Chunk(token)
+
+        return gen()
+
+
+def _stream(llm, monkeypatch):
+    monkeypatch.setattr(app, "LLM_RETRY_DELAY", 0)
+    out = []
+
+    async def on_token(token):
+        out.append(token)
+
+    asyncio.run(app._stream_answer(llm, "prompt", on_token))
+    return "".join(out)
+
+
+def test_stream_answer_retries_once_after_model_crash(monkeypatch):
+    llm = _FakeLLM([CRASH])
+    assert _stream(llm, monkeypatch) == "23 ft"
+    assert llm.calls == 2
+
+
+def test_stream_answer_gives_up_after_second_crash(monkeypatch):
+    llm = _FakeLLM([CRASH, CRASH])
+    with pytest.raises(RuntimeError, match="llama-server"):
+        _stream(llm, monkeypatch)
+    assert llm.calls == 2
+
+
+def test_stream_answer_does_not_retry_other_errors(monkeypatch):
+    llm = _FakeLLM([ValueError("bad request")])
+    with pytest.raises(ValueError):
+        _stream(llm, monkeypatch)
+    assert llm.calls == 1
+
+
+def test_stream_answer_does_not_retry_after_tokens_were_shown(monkeypatch):
+    llm = _FakeLLM([("mid", CRASH)])
+    with pytest.raises(RuntimeError):
+        _stream(llm, monkeypatch)
+    assert llm.calls == 1
+
+
+def test_ollama_llm_uses_configured_keep_alive():
+    assert app._make_llm(load_config({})).keep_alive == "30m"
+    assert app._make_llm(load_config({"OLLAMA_KEEP_ALIVE": "-1"})).keep_alive == "-1"
