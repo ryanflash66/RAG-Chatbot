@@ -155,6 +155,31 @@ The tests use a real ChromaDB in a temp directory and a deterministic hash embed
 2. Ask about a document in `data/`, and check that the answer streams and cites `Sources`.
 3. Reload the page, load the chat from **Recent chats**, then delete it.
 
+## Evaluating answers
+
+`eval/run_eval.py` asks the questions in [`eval/table_questions.json`](eval/table_questions.json) (values from tables in the TMP Design Manual, plus one question the documents can't answer) and grades the answers. It uses the chat app's own prompt and LLM setup, so the score is what users get.
+
+```bash
+.venv\Scripts\python eval/run_eval.py --provider ollama --model qwen2.5:14b --rebuild
+.venv\Scripts\python eval/run_eval.py --provider ollama --model llama3.2 --top-k 8 --json out.json
+```
+
+- `--rebuild` rebuilds the harness's own index at `eval/.chroma` (gitignored) from `DATA_DIR`. Use it the first time and after `data/` or chunking changes; without it, the existing index is reused. The app's `chroma_db` is never touched.
+- `--provider openrouter` sends every question and its passages to OpenRouter, like the app does. It needs `OPENROUTER_API_KEY`.
+- `--json` writes the full answers and the retrieved pages.
+
+Each row shows whether the answer passed, whether retrieval found the expected page, the latency, and the start of the answer:
+
+| Answer | Retrieval | Meaning |
+|---|---|---|
+| ✅ | ✅ | Correct. |
+| ❌ | ❌ | **Retrieval miss.** The table's page wasn't among the top-k chunks, so the model never saw it. Improve chunking or retrieval, or try a larger `--top-k`. A bigger model won't help. |
+| ❌ | ✅ | **Reading miss.** The model saw the table but misread it, often by picking the wrong row or column. Improve how tables are extracted, or use a stronger model. |
+
+A case passes when every substring of any one of its `accept` groups appears in the answer and no `reject` group matches. Matching ignores case, extra whitespace, markdown emphasis and dash style, and a trailing `Sources:` list is ignored. The refusal case passes when the answer says the context doesn't cover the question and doesn't invent a policy. Only the answer is graded, not the citations.
+
+Answers aren't fully deterministic, and on a shared Ollama the first question includes model load time, so treat a one-question difference between runs as noise.
+
 ## License
 
 MIT

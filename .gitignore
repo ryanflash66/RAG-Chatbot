@@ -234,5 +234,6 @@ llama_index_storage/
 CLAUDE.md
 CONTEXT.md
 
-# Local end-to-end test vector store
+# Evaluation harness index and e2e scratch stores
+eval/.chroma/
 .e2e_chroma/
