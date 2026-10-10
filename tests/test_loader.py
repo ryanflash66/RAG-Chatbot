@@ -156,6 +156,16 @@ def test_pdf_yields_one_document_per_page_with_page_label(tmp_path):
     assert all(d.metadata["file_name"] == "manual.pdf" for d in docs)
 
 
+def test_only_limits_loading_to_the_given_files(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "keep.md").write_text("# Keep\nkept text", encoding="utf-8")
+    (tmp_path / "skip.txt").write_text("skipped text", encoding="utf-8")
+
+    docs = loader.load(tmp_path, only=[tmp_path / "sub" / "keep.md"])
+
+    assert {d.metadata["source"] for d in docs} == {"sub/keep.md"}
+
+
 def test_pdf_reader_strips_inline_markup_and_accepts_legacy_page_key(tmp_path, monkeypatch):
     pymupdf4llm = pytest.importorskip("pymupdf4llm")
     chunks = [{"text": "<mark>Part 2</mark> �\n|Iowa|10 inches<br>(informal)|", "metadata": {"page": 7}}]
