@@ -74,7 +74,9 @@ class _Runtime:
             return self._retriever
 
     def answerer(self, llm: OpenRouterClient) -> Answerer:
-        return Answerer(self.retriever(), llm, top_k=self.settings.top_k)
+        s = self.settings
+        return Answerer(self.retriever(), llm, top_k=s.top_k, retry_min_score=s.retry_min_score if s.retry_on_refusal else None,
+                        retry_min_seconds=s.retry_min_seconds)
 
 
 runtime = _Runtime(settings)
@@ -196,7 +198,8 @@ async def ask(body: AskRequest, request: Request):
         # httpx's timeout is per phase, so bound the whole call to stay under Vercel's 60 s.
         remaining = max(MIN_ANSWER_SECONDS, settings.request_budget_seconds - (retrieved - started))
         try:
-            result = await asyncio.wait_for(answerer.answer(question, asker, target, hits), timeout=remaining)
+            deadline = time.monotonic() + remaining
+            result = await asyncio.wait_for(answerer.answer(question, asker, target, hits, deadline), timeout=remaining)
         except asyncio.TimeoutError as exc:
             raise LLMError(TOO_SLOW, status=504, detail=f"no answer within {remaining:.0f}s") from exc
     except LLMError as exc:
@@ -207,8 +210,8 @@ async def ask(body: AskRequest, request: Request):
         return _error(500, "Something went wrong answering that question. Please try again.")
     finished = time.perf_counter()
     log.info(
-        "ask asker=%s target=%s chars=%d refused=%s sources=%d model=%s retrieval=%.2fs total=%.2fs",
-        asker.id, target.id, len(question), result.refused, len(result.sources), result.model,
+        "ask asker=%s target=%s chars=%d refused=%s retried=%s sources=%d model=%s retrieval=%.2fs total=%.2fs",
+        asker.id, target.id, len(question), result.refused, result.retried, len(result.sources), result.model,
         retrieved - started, finished - started,
     )
     payload = result.as_dict()

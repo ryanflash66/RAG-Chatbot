@@ -6,7 +6,7 @@ is down or rate-limited; the response names the model that answered.
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import httpx
 
@@ -64,9 +64,16 @@ class OpenRouterClient:
         self.reasoning = reasoning
         self._transport = transport
 
-    async def complete(self, messages: List[Dict[str, str]]) -> Completion:
+    def retry_models(self, used: str) -> List[str]:
+        """The models for a second attempt after `used` answered: the ones after it, or `used` again if it was the last."""
+        if used in self.models:
+            return self.models[self.models.index(used) + 1:] or [used]
+        return self.models[1:] or self.models
+
+    async def complete(self, messages: List[Dict[str, str]], models: Optional[Sequence[str]] = None) -> Completion:
+        """Ask OpenRouter; `models` replaces the configured fallback list for this call."""
         body = {
-            "models": self.models,
+            "models": list(models) if models else self.models,
             "messages": messages,
             "temperature": self.temperature,
             "max_tokens": MAX_TOKENS,

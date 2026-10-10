@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -100,13 +101,23 @@ def test_prompt_frames_the_asker_but_contains_only_the_targets_passages():
 
 
 class _FakeLLM:
-    def __init__(self, text):
-        self.text = text
-        self.calls = []
+    """Replies with `text`; a list of texts is replayed one per call (the last repeats)."""
 
-    async def complete(self, messages):
+    def __init__(self, text):
+        self.texts = [text] if isinstance(text, str) else list(text)
+        self.calls = []
+        self.models_used = []
+
+    def retry_models(self, used):
+        return ["test/second:free"]
+
+    async def complete(self, messages, models=None):
         self.calls.append(messages)
-        return Completion(self.text, "test/model:free")
+        self.models_used.append(models)
+        text = self.texts[min(len(self.calls), len(self.texts)) - 1]
+        if isinstance(text, Exception):
+            raise text
+        return Completion(text, "test/model:free" if models is None else models[0])
 
 
 class _FakeRetriever:
@@ -128,6 +139,16 @@ def _answer(llm_text, scores=None, target="utilities"):
     answerer = Answerer(retriever, _FakeLLM(llm_text))
     hits = retriever.retrieve("q", target)
     return asyncio.run(answerer.answer("q", BY_ID["wztc"], BY_ID[target], hits)), retriever
+
+
+def _ask_with_retry(replies, score, seconds_left=None, reranker=True, **options):
+    """Answer a Utilities question whose best passage scores `score`; returns (result, llm)."""
+    retriever = _FakeRetriever({"wztc": -9.0, "utilities": score}, reranker=reranker)
+    llm = _FakeLLM(replies)
+    answerer = Answerer(retriever, llm, **options)
+    hits = retriever.retrieve("q", "utilities")
+    deadline = None if seconds_left is None else time.monotonic() + seconds_left
+    return asyncio.run(answerer.answer("q", BY_ID["utilities"], BY_ID["utilities"], hits, deadline)), llm
 
 
 def test_answer_with_citations_is_not_a_refusal():
@@ -159,6 +180,97 @@ def test_refusal_suggests_the_other_division_when_its_documents_look_relevant():
     assert result.suggest == ["wztc"]
     assert "try asking Work Zone Traffic Control" in result.answer
     assert result.as_dict()["suggest"] == [{"id": "wztc", "name": "Work Zone Traffic Control"}]
+
+
+@pytest.mark.parametrize("first", [NOT_FOUND, "The rate is three feet."])
+def test_refusal_despite_strong_retrieval_is_retried_once_with_the_next_model(first):
+    result, llm = _ask_with_retry([first, "Three feet [1]."], score=3.5, seconds_left=40)
+
+    assert not result.refused and result.retried
+    assert result.answer == "Three feet [1]." and len(result.sources) == 1
+    assert result.model == "test/second:free"
+    assert llm.models_used == [None, ["test/second:free"]]
+    assert llm.calls[0] == llm.calls[1]  # same prompt, different model
+
+
+def test_no_retry_when_retrieval_is_weak():
+    result, llm = _ask_with_retry([NOT_FOUND, "Three feet [1]."], score=0.5, seconds_left=40)
+
+    assert result.refused and not result.retried
+    assert len(llm.calls) == 1
+
+
+def test_no_retry_without_a_reranker_because_scores_are_then_not_comparable():
+    result, llm = _ask_with_retry([NOT_FOUND, "Three feet [1]."], score=3.5, reranker=False)
+
+    assert result.refused and len(llm.calls) == 1
+
+
+def test_no_retry_when_too_little_of_the_time_budget_is_left():
+    result, llm = _ask_with_retry([NOT_FOUND, "Three feet [1]."], score=3.5, seconds_left=10)
+
+    assert result.refused and not result.retried
+    assert len(llm.calls) == 1
+
+
+def test_no_retry_when_switched_off():
+    result, llm = _ask_with_retry([NOT_FOUND, "Three feet [1]."], score=3.5, seconds_left=40, retry_min_score=None)
+
+    assert result.refused and len(llm.calls) == 1
+
+
+def test_refusal_is_returned_when_the_retry_refuses_too():
+    result, llm = _ask_with_retry([NOT_FOUND, NOT_FOUND, "Three feet [1]."], score=3.5, seconds_left=40)
+
+    assert result.refused and result.retried and result.sources == []
+    assert len(llm.calls) == 2  # retried once, not more
+    assert "Utilities documents" in result.answer
+
+
+def test_refusal_is_returned_when_the_retry_fails_or_runs_out_of_time():
+    failed, _ = _ask_with_retry([NOT_FOUND, LLMError(BUSY, status=429)], score=3.5, seconds_left=40)
+    assert failed.refused and failed.retried
+
+    class _SlowRetry(_FakeLLM):
+        async def complete(self, messages, models=None):
+            if models:
+                await asyncio.sleep(30)
+            return await super().complete(messages, models)
+
+    retriever = _FakeRetriever({"wztc": -9.0, "utilities": 3.5})
+    answerer = Answerer(retriever, _SlowRetry(NOT_FOUND), retry_min_seconds=0.0)
+    hits = retriever.retrieve("q", "utilities")
+    started = time.monotonic()
+    slow = asyncio.run(answerer.answer("q", BY_ID["utilities"], BY_ID["utilities"], hits, started + 1.5))
+    assert slow.refused and time.monotonic() - started < 1.5  # gave up before the request deadline
+
+
+def test_retry_settings_have_defaults_and_can_be_changed():
+    default = load_settings({})
+    assert (default.retry_on_refusal, default.retry_min_score, default.retry_min_seconds) == (True, 1.0, 15.0)
+    custom = load_settings({"RETRY_ON_REFUSAL": "off", "RETRY_MIN_SCORE": "2.5", "RETRY_MIN_SECONDS": "20"})
+    assert (custom.retry_on_refusal, custom.retry_min_score, custom.retry_min_seconds) == (False, 2.5, 20.0)
+    with pytest.raises(ValueError):
+        load_settings({"RETRY_ON_REFUSAL": "maybe"})
+
+
+def test_retry_models_are_the_ones_after_the_model_that_answered():
+    client = OpenRouterClient("k", ["a:free", "b:free", "c:free"])
+    assert client.retry_models("a:free") == ["b:free", "c:free"]
+    assert client.retry_models("c:free") == ["c:free"]  # no fallback left: same model
+    assert client.retry_models("unknown:free") == ["b:free", "c:free"]
+    assert OpenRouterClient("k", ["a:free"]).retry_models("a:free") == ["a:free"]
+
+
+def test_complete_can_override_the_model_list():
+    seen = {}
+
+    def handler(request):
+        seen["models"] = json.loads(request.content)["models"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok [1]"}}]})
+
+    asyncio.run(_client(handler).complete([], models=["e/f:free"]))
+    assert seen["models"] == ["e/f:free"]
 
 
 def test_settings_reject_paid_models():

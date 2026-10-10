@@ -18,19 +18,30 @@ documents are never searched.
 """
 
 import asyncio
+import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from .divisions import BY_ID, DIVISIONS, Division, document_for
 from .index_file import Hit
-from .llm import OpenRouterClient
+from .llm import Completion, LLMError, OpenRouterClient
 from .retrieval import Retriever
 
 NOT_FOUND = "NOT_IN_DOCUMENTS"
 # Cross-encoder (ms-marco MiniLM) score above which another division's best
 # passage counts as relevant enough to suggest asking that division instead.
 SUGGEST_THRESHOLD = 0.0
+# A refusal is retried once when the best passage's reranker score is at least
+# this. Scores of questions the documents answer were 0.9-7.8 (bore-and-jack
+# cover, which the free model sometimes refused: 3.5); questions they don't
+# answer scored -9.4 to -3.5, and the HAWKS question, whose topic the manual
+# mentions without the criteria, 0.5. 1.0 keeps all of those refusals fast.
+RETRY_MIN_SCORE = 1.0
+RETRY_MIN_SECONDS = 15.0
+# The retry stops this long before the request's deadline so the refusal can still be returned.
+RETRY_MARGIN_SECONDS = 1.0
 EXCERPT_CHARS = 700
 # The best hits also bring the next chunk of their document (see Retriever.with_following).
 FOLLOWING_FOR_TOP = 2
@@ -87,6 +98,7 @@ class Answer:
     sources: List[Source] = field(default_factory=list)
     model: Optional[str] = None
     suggest: List[str] = field(default_factory=list)  # division ids worth asking instead
+    retried: bool = False  # a refusal was followed by a second model call
 
     def as_dict(self) -> Dict:
         return {
@@ -263,11 +275,24 @@ def refusal_text(target: Division, suggest: List[str]) -> str:
     return text
 
 
+log = logging.getLogger(__name__)
+
+
+def _grade(raw: str, hits: List[Hit]) -> Tuple[str, List[Source]]:
+    """The answer text and its sources; no sources means the reply is a refusal."""
+    if raw.lstrip().startswith(NOT_FOUND):
+        return "", []
+    return attach_sources(raw.replace(NOT_FOUND, ""), hits)
+
+
 class Answerer:
-    def __init__(self, retriever: Retriever, llm: OpenRouterClient, top_k: int = 5):
+    def __init__(self, retriever: Retriever, llm: OpenRouterClient, top_k: int = 5,
+                 retry_min_score: Optional[float] = RETRY_MIN_SCORE, retry_min_seconds: float = RETRY_MIN_SECONDS):
         self.retriever = retriever
         self.llm = llm
         self.top_k = top_k
+        self.retry_min_score = retry_min_score  # None: never retry
+        self.retry_min_seconds = retry_min_seconds
 
     def retrieve(self, question: str, target: Division) -> List[Hit]:
         hits = self.retriever.retrieve(question, division=target.id, k=self.top_k)
@@ -286,13 +311,45 @@ class Answerer:
                 suggest.append(division.id)
         return suggest
 
-    async def answer(self, question: str, asker: Division, target: Division, hits: List[Hit]) -> Answer:
+    def _worth_retrying(self, hits: List[Hit], deadline: Optional[float]) -> bool:
+        """Retrieval was strong (reranker scores only) and enough of the request's time is left."""
+        if self.retry_min_score is None or self.retriever.reranker is None:
+            return False
+        if max(hit.score for hit in hits) < self.retry_min_score:
+            return False
+        return deadline is None or deadline - time.monotonic() >= self.retry_min_seconds
+
+    async def _retry(self, messages: List[Dict[str, str]], first: Completion, hits: List[Hit],
+                     deadline: Optional[float]) -> Optional[Tuple[Completion, str, List[Source]]]:
+        """Ask once more with the next model; the new answer if it is cited, else None."""
+        models = self.llm.retry_models(first.model)
+        log.info("refusal despite strong retrieval (top score %.2f): retrying %s with %s",
+                 max(hit.score for hit in hits), first.model, models[0])
+        timeout = None if deadline is None else deadline - time.monotonic() - RETRY_MARGIN_SECONDS
+        try:
+            second = await asyncio.wait_for(self.llm.complete(messages, models=models), timeout=timeout)
+        except (LLMError, asyncio.TimeoutError) as exc:
+            log.warning("retry failed (%s); keeping the refusal", exc.__class__.__name__)
+            return None
+        text, sources = _grade(second.text, hits)
+        log.info("retry by %s: %s", second.model, "cited answer" if sources else "refused again")
+        return (second, text, sources) if sources else None
+
+    async def answer(self, question: str, asker: Division, target: Division, hits: List[Hit],
+                     deadline: Optional[float] = None) -> Answer:
+        """Answer from the hits. `deadline` is a time.monotonic() value that bounds the optional retry."""
         if not hits:
             return Answer(refusal_text(target, []), refused=True)
-        completion = await self.llm.complete(build_messages(question, asker, target, hits))
-        raw = completion.text
-        text, sources = ("", []) if raw.lstrip().startswith(NOT_FOUND) else attach_sources(raw.replace(NOT_FOUND, ""), hits)
+        messages = build_messages(question, asker, target, hits)
+        completion = await self.llm.complete(messages)
+        text, sources = _grade(completion.text, hits)
+        retried = False
+        if not sources and self._worth_retrying(hits, deadline):
+            retried = True
+            second = await self._retry(messages, completion, hits, deadline)
+            if second:
+                completion, text, sources = second
         if not sources:
             suggest = await asyncio.to_thread(self.suggest_divisions, question, target)
-            return Answer(refusal_text(target, suggest), refused=True, model=completion.model, suggest=suggest)
-        return Answer(text, refused=False, sources=sources, model=completion.model)
+            return Answer(refusal_text(target, suggest), refused=True, model=completion.model, suggest=suggest, retried=retried)
+        return Answer(text, refused=False, sources=sources, model=completion.model, retried=retried)
