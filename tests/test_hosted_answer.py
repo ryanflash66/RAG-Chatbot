@@ -15,7 +15,7 @@ from divrag.answer import NOT_FOUND, Answerer, attach_sources, build_messages, c
 from divrag.config import load_settings  # noqa: E402
 from divrag.divisions import BY_ID  # noqa: E402
 from divrag.index_file import Hit  # noqa: E402
-from divrag.llm import BUSY, Completion, LLMError, OpenRouterClient  # noqa: E402
+from divrag.llm import BUSY, DAILY_LIMIT, UNAVAILABLE, Completion, LLMError, OpenRouterClient  # noqa: E402
 
 UAM = "20220713 NCDOT UAM Ver 2-0.pdf"
 TMP = "TMP Design Manual (Combined, No Links).pdf"
@@ -171,6 +171,13 @@ def test_settings_reject_paid_models():
     assert settings.rerank is False
 
 
+def test_request_budget_defaults_under_vercels_limit_and_rejects_values_above_it():
+    assert load_settings({}).request_budget_seconds == 55
+    assert load_settings({"REQUEST_BUDGET_SECONDS": "30"}).request_budget_seconds == 30
+    with pytest.raises(ValueError):
+        load_settings({"REQUEST_BUDGET_SECONDS": "60"})
+
+
 def _client(handler):
     return OpenRouterClient("sk-test", ["a/b:free", "c/d:free"], transport=httpx.MockTransport(handler))
 
@@ -199,6 +206,49 @@ def test_rate_limits_become_a_friendly_busy_error(response):
         asyncio.run(_client(lambda request: response).complete([]))
     assert caught.value.user_message == BUSY
     assert caught.value.status == 429
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(429, json={"error": {"code": 429, "message": "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock."}}),
+    httpx.Response(429, json={"error": {"code": 429, "message": "Rate limit exceeded", "metadata": {"headers": {"X-RateLimit-Limit": "50"}, "reason": "free-models-per-day"}}}),
+    httpx.Response(200, json={"error": {"code": 429, "message": "Rate limit exceeded: free-models-per-day"}}),
+])
+def test_daily_free_quota_has_its_own_message(response):
+    with pytest.raises(LLMError) as caught:
+        asyncio.run(_client(lambda request: response).complete([]))
+    assert caught.value.user_message == DAILY_LIMIT
+    assert caught.value.status == 429
+
+
+def test_per_minute_rate_limit_stays_busy():
+    response = httpx.Response(429, json={"error": {"code": 429, "message": "Rate limit exceeded", "metadata": {"error_type": "rate_limit_exceeded"}}})
+    with pytest.raises(LLMError) as caught:
+        asyncio.run(_client(lambda request: response).complete([]))
+    assert caught.value.user_message == BUSY
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(200, text="<html>Bad gateway</html>"),
+    httpx.Response(200, json={"error": "upstream exploded"}),
+    httpx.Response(200, json=["not", "an", "object"]),
+    httpx.Response(200, json={"choices": "nope"}),
+])
+def test_malformed_upstream_responses_become_the_friendly_unavailable_error(response):
+    with pytest.raises(LLMError) as caught:
+        asyncio.run(_client(lambda request: response).complete([]))
+    assert caught.value.user_message == UNAVAILABLE
+    assert caught.value.status == 503
+
+
+def test_requests_cap_provider_prices_at_zero():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok [1]"}}]})
+
+    asyncio.run(_client(handler).complete([]))
+    assert seen["body"]["provider"] == {"max_price": {"prompt": 0, "completion": 0}}
 
 
 def test_cut_off_answer_is_an_error_not_a_partial_answer():

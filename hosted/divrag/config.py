@@ -15,6 +15,7 @@ for the public demo.
     INDEX_DIR                   directory with chunks.json and vectors.npy (default hosted/index)
     MAX_QUESTION_CHARS          default 500
     RATE_LIMIT_PER_MINUTE       questions per client IP per minute, per server instance (default 8)
+    REQUEST_BUDGET_SECONDS      total time one question may take, kept under Vercel's 60 s maxDuration (default 55)
     ALLOWED_ORIGINS             comma-separated origins allowed to call the API from another site
                                 (default none: only the page served by this app can call it)
 """
@@ -48,6 +49,7 @@ class Settings:
     index_dir: Path
     max_question_chars: int
     rate_limit_per_minute: int
+    request_budget_seconds: float
     allowed_origins: Tuple[str, ...]
 
 
@@ -72,6 +74,9 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
     top_k = int(env.get("TOP_K", "5"))
     if not 1 <= top_k <= 10:
         raise ValueError(f"TOP_K must be 1-10, got {top_k}")
+    budget = float(env.get("REQUEST_BUDGET_SECONDS", "55"))
+    if not 10 <= budget <= 58:
+        raise ValueError(f"REQUEST_BUDGET_SECONDS must be 10-58 (Vercel stops the function at 60), got {budget}")
     index_dir = Path(env.get("INDEX_DIR", "").strip() or HOSTED_DIR / "index")
     return Settings(
         openrouter_api_key=env.get("OPENROUTER_API_KEY", "").strip() or None,
@@ -84,5 +89,6 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         index_dir=index_dir if index_dir.is_absolute() else HOSTED_DIR / index_dir,
         max_question_chars=int(env.get("MAX_QUESTION_CHARS", "500")),
         rate_limit_per_minute=int(env.get("RATE_LIMIT_PER_MINUTE", "8")),
+        request_budget_seconds=budget,
         allowed_origins=_csv(env.get("ALLOWED_ORIGINS", "")),
     )

@@ -31,10 +31,12 @@ from divrag.config import Settings, load_settings
 from divrag.divisions import BY_ID, DIVISIONS
 from divrag.embedder import Embedder, Reranker, model_cache_dir
 from divrag.index_file import IndexFile
-from divrag.llm import MISCONFIGURED, LLMError, OpenRouterClient
+from divrag.llm import MISCONFIGURED, TOO_SLOW, LLMError, OpenRouterClient
 from divrag.retrieval import Retriever
 
 PUBLIC_DIR = Path(__file__).resolve().parent / "public"
+# The answer call always gets at least this long, even if retrieval ate the budget.
+MIN_ANSWER_SECONDS = 5.0
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("hosted")
@@ -191,7 +193,12 @@ async def ask(body: AskRequest, request: Request):
         answerer = await asyncio.to_thread(runtime.answerer, _make_llm())
         hits = await asyncio.to_thread(answerer.retrieve, question, target)
         retrieved = time.perf_counter()
-        result = await answerer.answer(question, asker, target, hits)
+        # httpx's timeout is per phase, so bound the whole call to stay under Vercel's 60 s.
+        remaining = max(MIN_ANSWER_SECONDS, settings.request_budget_seconds - (retrieved - started))
+        try:
+            result = await asyncio.wait_for(answerer.answer(question, asker, target, hits), timeout=remaining)
+        except asyncio.TimeoutError as exc:
+            raise LLMError(TOO_SLOW, status=504, detail=f"no answer within {remaining:.0f}s") from exc
     except LLMError as exc:
         log.warning("LLM error: %s", exc)
         return _error(exc.status, exc.user_message)

@@ -1,5 +1,6 @@
 """Tests for the hosted demo's HTTP API (hosted/index.py) with a fake retriever and LLM; no network."""
 
+import asyncio
 import dataclasses
 import sys
 from pathlib import Path
@@ -13,7 +14,7 @@ sys.path.insert(0, str(HOSTED))
 import index as hosted  # noqa: E402
 from divrag.answer import NOT_FOUND  # noqa: E402
 from divrag.index_file import Hit  # noqa: E402
-from divrag.llm import BUSY, Completion, LLMError  # noqa: E402
+from divrag.llm import BUSY, TOO_SLOW, Completion, LLMError  # noqa: E402
 
 UAM = "20220713 NCDOT UAM Ver 2-0.pdf"
 SECRET = "sk-or-test-secret"
@@ -107,6 +108,22 @@ def test_rate_limited_model_returns_friendly_429(api):
 
     assert response.status_code == 429
     assert response.json() == {"error": BUSY}
+
+
+def test_answer_that_outlasts_the_time_budget_returns_a_friendly_504(api, monkeypatch):
+    client, _, llm = api
+
+    async def never_answers(messages):
+        await asyncio.sleep(30)
+
+    llm.complete = never_answers
+    monkeypatch.setattr(hosted, "MIN_ANSWER_SECONDS", 0.05)
+    monkeypatch.setattr(hosted, "settings", dataclasses.replace(hosted.settings, request_budget_seconds=0.0))
+
+    response = _ask(client)
+
+    assert response.status_code == 504
+    assert response.json() == {"error": TOO_SLOW}
 
 
 @pytest.mark.parametrize("body,status", [

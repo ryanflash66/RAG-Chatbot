@@ -217,7 +217,7 @@ Live demo: https://ncdot-division-assistant.vercel.app (Vercel project `ncdot-di
 - **Documents** are indexed ahead of time, outside Vercel (see below), and `hosted/index/` is committed.
 - `.vercelignore` limits a `vercel deploy` from the repo root to `hosted/`, so `.env` and the PDFs are never uploaded.
 
-Settings (environment variables, all optional except the key): `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS` (`:free` models only), `LLM_TEMPERATURE` (0.1), `LLM_REASONING` (`off`), `RERANK` (`on`/`off`), `RERANK_CANDIDATES` (20), `TOP_K` (5), `MODEL_CACHE_DIR`, `INDEX_DIR`, `MAX_QUESTION_CHARS` (500), `RATE_LIMIT_PER_MINUTE` (8 per client IP per instance), `ALLOWED_ORIGINS` (none: same-origin only). See `hosted/divrag/config.py`.
+Settings (environment variables, all optional except the key): `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS` (`:free` models only), `LLM_TEMPERATURE` (0.1), `LLM_REASONING` (`off`), `RERANK` (`on`/`off`), `RERANK_CANDIDATES` (20), `TOP_K` (5), `MODEL_CACHE_DIR`, `INDEX_DIR`, `MAX_QUESTION_CHARS` (500), `RATE_LIMIT_PER_MINUTE` (8 per client IP per instance), `REQUEST_BUDGET_SECONDS` (55; total time per question, under Vercel's 60 s), `ALLOWED_ORIGINS` (none: same-origin only). See `hosted/divrag/config.py`.
 
 ### Rebuilding the index
 

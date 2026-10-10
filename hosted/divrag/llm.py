@@ -28,6 +28,8 @@ class LLMError(Exception):
 
 
 BUSY = "The free AI model is busy right now (rate limit reached). Please wait a minute and try again."
+DAILY_LIMIT = "The demo has reached today's free usage limit. Please try again tomorrow."
+TOO_SLOW = "That took too long to answer. Please ask again."
 UNAVAILABLE = "The AI service didn't respond. Please try again in a moment."
 TOO_LONG = "The answer ran too long. Please try a narrower question."
 MISCONFIGURED = "The demo's AI service isn't configured correctly. Please let the demo owner know."
@@ -37,6 +39,18 @@ MISCONFIGURED = "The demo's AI service isn't configured correctly. Please let th
 class Completion:
     text: str
     model: str
+
+
+# OpenRouter's docs show only the generic 429 body; the daily cap on free models
+# arrives as "Rate limit exceeded: free-models-per-day ..." in the message, so
+# match the message and metadata text rather than one exact field.
+_DAILY_MARKERS = ("free-models-per-day", "per-day", "per day")
+
+
+def _rate_limited(detail: str) -> LLMError:
+    """BUSY for a per-minute limit, DAILY_LIMIT when the free daily cap is spent."""
+    daily = any(marker in detail.lower() for marker in _DAILY_MARKERS)
+    return LLMError(DAILY_LIMIT if daily else BUSY, status=429, detail=detail[:300])
 
 
 class OpenRouterClient:
@@ -60,6 +74,8 @@ class OpenRouterClient:
             # minute on multi-part questions and could spend the whole token
             # budget reasoning, returning its notes instead of an answer.
             "reasoning": {"enabled": False} if self.reasoning == "off" else {"effort": self.reasoning, "exclude": True},
+            # Defence in depth behind the ":free" model check: never route to a priced endpoint.
+            "provider": {"max_price": {"prompt": 0, "completion": 0}},
         }
         headers = {"Authorization": f"Bearer {self._api_key}", "X-Title": "NCDOT cross-division Q&A demo"}
         try:
@@ -70,7 +86,7 @@ class OpenRouterClient:
             raise LLMError(UNAVAILABLE, detail=str(exc)) from exc
 
         if response.status_code == 429:
-            raise LLMError(BUSY, status=429, detail=response.text[:300])
+            raise _rate_limited(response.text[:2000])
         if response.status_code in (401, 402, 403):
             log.error("OpenRouter refused the request (%s): %s", response.status_code, response.text[:300])
             raise LLMError(MISCONFIGURED, detail=response.text[:300])
@@ -78,12 +94,20 @@ class OpenRouterClient:
             log.warning("OpenRouter error %s: %s", response.status_code, response.text[:300])
             raise LLMError(UNAVAILABLE, detail=response.text[:300])
 
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise LLMError(UNAVAILABLE, detail=f"non-JSON response: {response.text[:300]}") from exc
+        if not isinstance(data, dict):
+            raise LLMError(UNAVAILABLE, detail=f"unexpected response: {str(data)[:300]}")
         # Errors from the upstream provider can arrive with HTTP 200.
         if data.get("error"):
-            code = data["error"].get("code")
-            log.warning("OpenRouter upstream error %s: %s", code, str(data["error"])[:300])
-            raise LLMError(BUSY if code == 429 else UNAVAILABLE, status=429 if code == 429 else 503)
+            error = data["error"]
+            code = error.get("code") if isinstance(error, dict) else None
+            log.warning("OpenRouter upstream error %s: %s", code, str(error)[:300])
+            if code == 429:
+                raise _rate_limited(str(error))
+            raise LLMError(UNAVAILABLE, detail=str(error)[:300])
         try:
             choice = data["choices"][0]
             text = choice["message"].get("content") or ""
