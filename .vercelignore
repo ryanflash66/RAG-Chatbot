@@ -1,0 +1,6 @@
+# The Vercel project's Root Directory is hosted/. When `vercel deploy` runs from
+# the repo root, upload only that directory: never .env, data/ PDFs or local caches.
+/*
+!/hosted
+/hosted/models
+/hosted/RESULTS-local.md

@@ -1,13 +1,21 @@
-"""The hosted prototype: search over a precomputed index, small enough for Vercel.
+"""Offline tools for the hosted demo in hosted/.
 
-Documents are loaded, chunked and embedded offline (`prototype.ingest`), with
-the same PDF-to-Markdown loader and table-aware chunking as the Chainlit app.
-The result is a pair of plain files (`prototype.index_file`). At query time only
-the question is embedded (`prototype.embedder`), and hits are found with numpy
-cosine similarity. Nothing here calls a paid API.
+The hosted app (hosted/) is self-contained so it can be deployed with hosted/
+as its root directory: its runtime code (hosted/divrag: embedder, index file,
+divisions, answering) needs only hosted/requirements.txt. The tools here run on
+a developer machine with the full requirements.txt as well:
 
-`embedder` and `index_file` need only numpy and fastembed
-(requirements-prototype.txt), so a serverless function can import them without
-the Chainlit app's dependencies. `ingest` runs on a developer machine with the
-full requirements.txt plus fastembed.
+    py -m prototype.ingest    build hosted/index/ from the divisions' documents
+    py -m prototype.search    try retrieval against an index from the command line
+
+Importing this package puts hosted/ on sys.path so the tools share the hosted
+app's `divrag` package (same embedder, same index format) instead of a copy.
 """
+
+import sys
+from pathlib import Path
+
+HOSTED_DIR = Path(__file__).resolve().parent.parent / "hosted"
+
+if str(HOSTED_DIR) not in sys.path:
+    sys.path.insert(0, str(HOSTED_DIR))

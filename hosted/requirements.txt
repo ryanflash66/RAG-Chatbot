@@ -1,0 +1,6 @@
+# The hosted demo's runtime dependencies only (no torch, Chroma or LlamaIndex).
+# fastembed runs the embedding model and the reranker on onnxruntime.
+fastembed>=0.9,<0.10
+numpy>=2
+fastapi>=0.115
+httpx>=0.27
