@@ -26,7 +26,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import Dict, FrozenSet, List, Optional, Tuple
+from typing import Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from llama_index.core import Document, SimpleDirectoryReader
 from llama_index.core.readers.base import BaseReader
@@ -290,14 +290,18 @@ class _SheetReader(BaseReader):
         return docs
 
 
-def load(data_dir: "str | Path") -> List[Document]:
+def load(data_dir: "str | Path", only: Optional[Iterable["str | Path"]] = None) -> List[Document]:
     """Load every supported Document under data_dir, with its metadata attached.
 
     Files with unsupported extensions and hidden files or directories are skipped.
-    Documents that produce no text are dropped.
+    Documents that produce no text are dropped. `only` limits loading to those
+    files (paths under data_dir); metadata is still relative to data_dir.
     """
     data_dir = Path(data_dir).resolve()
     files = _supported_files(data_dir)
+    if only is not None:
+        wanted = {Path(f).resolve() for f in only}
+        files = [p for p in files if p.resolve() in wanted]
     if not files:
         return []
 

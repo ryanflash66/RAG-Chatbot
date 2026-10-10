@@ -180,6 +180,18 @@ A case passes when every substring of any one of its `accept` groups appears in 
 
 Answers aren't fully deterministic, and on a shared Ollama the first question includes model load time, so treat a one-question difference between runs as noise.
 
+## Hosted prototype (work in progress)
+
+`prototype/` is the start of a free-tier hosted demo. Documents are chunked and embedded offline into two plain files (`chunks.json`, `vectors.npy`); at query time only the question is embedded, with [fastembed](https://github.com/qdrant/fastembed) running the same `BAAI/bge-small-en-v1.5` model on onnxruntime (no torch, no API key), and hits are ranked with numpy cosine similarity.
+
+```bash
+.venv\Scripts\python -m pip install -r requirements-prototype.txt
+.venv\Scripts\python -m prototype.ingest "data/TMP Design Manual (Combined, No Links).pdf" --out prototype/index/tmp_design_manual --compare
+.venv\Scripts\python -m prototype.search prototype/index/tmp_design_manual "What are the dimensions of the NC-PCB concrete barrier?"
+```
+
+`--compare` checks fastembed's vectors against the sentence-transformers ones the chat app uses. Indexes under `prototype/index/` are gitignored.
+
 ## License
 
 MIT

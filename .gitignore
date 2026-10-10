@@ -237,3 +237,6 @@ CONTEXT.md
 # Evaluation harness index and e2e scratch stores
 eval/.chroma/
 .e2e_chroma/
+
+# Prototype indexes built by `py -m prototype.ingest` (rebuild from data/)
+prototype/index/
