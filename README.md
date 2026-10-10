@@ -180,17 +180,43 @@ A case passes when every substring of any one of its `accept` groups appears in 
 
 Answers aren't fully deterministic, and on a shared Ollama the first question includes model load time, so treat a one-question difference between runs as noise.
 
-## Hosted prototype (work in progress)
+## Hosted demo: cross-division Q&A (`hosted/`)
 
-`prototype/` is the start of a free-tier hosted demo. Documents are chunked and embedded offline into two plain files (`chunks.json`, `vectors.npy`); at query time only the question is embedded, with [fastembed](https://github.com/qdrant/fastembed) running the same `BAAI/bge-small-en-v1.5` model on onnxruntime (no torch, no API key), and hits are ranked with numpy cosine similarity.
+A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Control or Utilities) asks a question and gets an answer drawn only from the *other* division's manual, citing the document, PDF page and section, with a link to the public PDF at that page. When the manual doesn't cover the question, the demo says so and shows no sources.
+
+`hosted/` is self-contained so it can be deployed on its own (Vercel Root Directory = `hosted`):
+
+| Path | What it is |
+|---|---|
+| `hosted/index.py` | FastAPI app (`app`): `GET /` page, `GET /api/divisions`, `POST /api/ask`, `GET /api/health` |
+| `hosted/public/index.html` | the page (plain HTML/CSS/JS, mobile-first) |
+| `hosted/divrag/` | runtime: `divisions.py` (one row per division), index search with a division filter, fastembed embedder and reranker, OpenRouter client, prompt and citations |
+| `hosted/index/` | the committed index: `chunks.json` (each chunk tagged with its `division`) and float16 `vectors.npy` |
+| `hosted/requirements.txt` | runtime dependencies only: fastembed, numpy, fastapi, httpx |
+
+Retrieval searches only the asked division's chunks (BAAI/bge-small-en-v1.5 via fastembed). It reranks the top 20 with the ONNX cross-encoder `Xenova/ms-marco-MiniLM-L-6-v2` and keeps 5, plus the next chunk of the top 2 hits. Consecutive chunks are merged so that a rule running across a page break reaches the model whole. The answer comes from a free OpenRouter model (`nvidia/nemotron-3-ultra-550b-a55b:free`, falling back to `nvidia/nemotron-3-super-120b-a12b:free` and `google/gemma-4-31b-it:free`). Paid models are refused at startup.
+
+Run it locally (needs `OPENROUTER_API_KEY` in `.env`):
 
 ```bash
-.venv\Scripts\python -m pip install -r requirements-prototype.txt
-.venv\Scripts\python -m prototype.ingest "data/TMP Design Manual (Combined, No Links).pdf" --out prototype/index/tmp_design_manual --compare
-.venv\Scripts\python -m prototype.search prototype/index/tmp_design_manual "What are the dimensions of the NC-PCB concrete barrier?"
+.venv\Scripts\python -m pip install -r hosted/requirements.txt
+.venv\Scripts\python -m uvicorn index:app --app-dir hosted --env-file .env --port 8000
 ```
 
-`--compare` checks fastembed's vectors against the sentence-transformers ones the chat app uses. Indexes under `prototype/index/` are gitignored.
+Then open http://localhost:8000. The first question downloads the two ONNX models (about 150 MB) into the system temp directory, unless `MODEL_CACHE_DIR` points at a copy. `hosted/RESULTS-local.md` has the results of real questions against the local app.
+
+Settings (environment variables, all optional except the key): `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS` (`:free` models only), `LLM_TEMPERATURE` (0.1), `LLM_REASONING` (`off`), `RERANK` (`on`/`off`), `RERANK_CANDIDATES` (20), `TOP_K` (5), `MODEL_CACHE_DIR`, `INDEX_DIR`, `MAX_QUESTION_CHARS` (500), `RATE_LIMIT_PER_MINUTE` (8 per client IP per instance), `ALLOWED_ORIGINS` (none: same-origin only). See `hosted/divrag/config.py`.
+
+### Rebuilding the index
+
+The index is built offline by `prototype/` (it needs the full `requirements.txt` for the PDF reader and chunker) from the PDFs in `data/`, which are not committed. Their public URLs are in `hosted/divrag/divisions.py`.
+
+```bash
+.venv\Scripts\python -m prototype.ingest                 # all divisions -> hosted/index/
+.venv\Scripts\python -m prototype.search --division utilities "Who pays for a detour?"
+```
+
+Chunks are 512 tokens, not the chat app's 1024, because bge-small and the reranker read only the first 512 tokens of a passage. `--compare` checks fastembed's vectors against the sentence-transformers ones the chat app uses. To add a division, add a row to `DIVISIONS` in `hosted/divrag/divisions.py`, put its PDF in `data/`, and rebuild.
 
 ## License
 
