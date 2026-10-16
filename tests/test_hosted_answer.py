@@ -334,6 +334,13 @@ def test_settings_reject_paid_models():
     assert settings.rerank is False
 
 
+@pytest.mark.parametrize("value", ["two", "0", "-1", "1.5"])
+def test_a_bad_onnx_threads_value_stops_startup(value):
+    with pytest.raises(ValueError):
+        load_settings({"ONNX_THREADS": value})
+    load_settings({"ONNX_THREADS": "2"})
+
+
 def test_request_budget_defaults_under_vercels_limit_and_rejects_values_above_it():
     assert load_settings({}).request_budget_seconds == 55
     assert load_settings({"REQUEST_BUDGET_SECONDS": "30"}).request_budget_seconds == 30

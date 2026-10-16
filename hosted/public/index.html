@@ -365,9 +365,11 @@
   function warmUp() {
     if (warm.inFlight || Date.now() - warm.at < 30000) return;
     warm.inFlight = true;
-    fetch("api/warm", { method: "POST" }).then(function (r) {
-      if (r.ok) warm.at = Date.now();
-    }).catch(function () {}).then(function () { warm.inFlight = false; });
+    // The cooldown follows failed attempts too, so a broken warm-up isn't retried on every keystroke.
+    fetch("api/warm", { method: "POST" }).catch(function () {}).then(function () {
+      warm.inFlight = false;
+      warm.at = Date.now();
+    });
   }
 
   asker.addEventListener("change", function () {
