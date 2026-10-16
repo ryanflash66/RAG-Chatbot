@@ -123,6 +123,11 @@
     background: var(--bg); color: var(--text);
   }
   .model { font-size: .8rem; color: var(--muted); margin-top: 10px; }
+  .model + details { margin-top: 2px; font-size: .8rem; }
+  table.timing { border-collapse: collapse; margin-top: 4px; color: var(--muted); }
+  table.timing td { padding: 1px 12px 1px 0; }
+  table.timing td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  table.timing tr.total td { border-top: 1px solid var(--border); font-weight: 600; }
   footer { font-size: .85rem; color: var(--muted); padding: 4px 0 24px; }
   footer ul { padding-left: 18px; margin: 6px 0; }
   footer a { color: var(--accent); }
@@ -280,6 +285,35 @@
     }).join("") + "</ol>";
   }
 
+  // timing_ms keys from hosted/divrag/timing.py, in pipeline order.
+  var STEP_LABELS = [
+    ["model_load", "Loading the search models"],
+    ["embed", "Reading the question"],
+    ["search", "Searching the documents"],
+    ["rerank", "Reranking the passages"],
+    ["llm", "Writing the answer"],
+    ["citations", "Checking the citations"],
+    ["retry", "Retrying with another model"],
+    ["suggest", "Checking the other divisions"]
+  ];
+  var OPTIONAL_STEPS = { retry: true, suggest: true };
+
+  function seconds(ms) { return ms < 1000 ? ms + " ms" : (ms / 1000).toFixed(1) + " s"; }
+
+  function timingHtml(data) {
+    var t = data.timing_ms;
+    if (!t) return "";
+    var line = '<p class="model">' + (data.model && !data.refused ? "Written by " + escapeHtml(data.model) + " in " : "Answered in ") +
+      seconds(t.total) + (data.retried && data.first_model ? " (retried after " + escapeHtml(data.first_model) + ")" : "") + ".</p>";
+    var rows = STEP_LABELS.filter(function (s) {
+      return typeof t[s[0]] === "number" && !(OPTIONAL_STEPS[s[0]] && !t[s[0]]);
+    }).map(function (s) {
+      return "<tr><td>" + s[1] + "</td><td>" + seconds(t[s[0]]) + "</td></tr>";
+    }).join("");
+    return line + '<details><summary>Time per step</summary><table class="timing">' + rows +
+      '<tr class="total"><td>Total</td><td>' + seconds(t.total) + "</td></tr></table></details>";
+  }
+
   function render(q, data) {
     var head = '<p class="result-head">Answer from <strong>' + escapeHtml(data.target.name) + "</strong>" +
       (data.asker.id !== data.target.id ? ", for a colleague in " + escapeHtml(data.asker.name) : "") + "</p>" +
@@ -289,7 +323,7 @@
       (data.suggest || []).forEach(function (s) {
         html += '<button type="button" class="secondary" data-suggest="' + escapeHtml(s.id) + '">Ask ' + escapeHtml(s.name) + " instead</button>";
       });
-      showResult(html, "notice");
+      showResult(html + timingHtml(data), "notice");
       Array.prototype.forEach.call(el("result").querySelectorAll("[data-suggest]"), function (b) {
         b.addEventListener("click", function () {
           target.value = b.getAttribute("data-suggest");
@@ -299,8 +333,7 @@
       return;
     }
     showResult(head + '<div class="answer">' + renderAnswer(data.answer, data.sources.length) + "</div>" +
-      sourcesHtml(data.sources) +
-      (data.model ? '<p class="model">Written by ' + escapeHtml(data.model) + " in " + (data.timing_ms.total / 1000).toFixed(1) + " s.</p>" : ""));
+      sourcesHtml(data.sources) + timingHtml(data));
   }
 
   function ask() {
