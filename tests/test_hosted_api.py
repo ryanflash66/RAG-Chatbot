@@ -27,7 +27,7 @@ class _FakeRetriever:
     def __init__(self):
         self.divisions = []
 
-    def retrieve(self, question, division, k=5, timer=None):
+    def retrieve(self, question, division, k=5, timer=None, candidates=None):
         self.divisions.append(division)
         if timer is not None:
             with timer.step("embed"):
@@ -62,7 +62,6 @@ def api(monkeypatch):
     monkeypatch.setattr(hosted, "settings", dataclasses.replace(hosted.settings, openrouter_api_key=SECRET))
     monkeypatch.setattr(hosted.runtime, "retriever", lambda: retriever)
     monkeypatch.setattr(hosted, "_make_llm", lambda: llm)
-    monkeypatch.setattr(hosted, "_warm", lambda: None)
     monkeypatch.setattr(hosted, "limiter", hosted._RateLimiter(100))
     return TestClient(hosted.app), retriever, llm
 
@@ -190,6 +189,32 @@ def test_page_divisions_and_health_expose_no_secrets(api):
     assert all(m.endswith(":free") for m in health["llm_models"])
     for text in (page.text, str(divisions), str(health)):
         assert SECRET not in text
+
+
+def test_warm_loads_the_models_and_divisions_does_not(api, monkeypatch):
+    client, _, _ = api
+    loads = []
+    monkeypatch.setattr(hosted.runtime, "retriever", lambda: loads.append(1))
+
+    client.get("/api/divisions")
+    assert loads == []
+    response = client.post("/api/warm")
+
+    assert response.status_code == 200 and response.json()["ready"] is True
+    assert loads == [1]
+
+
+def test_failed_warm_up_reports_not_ready_without_details(api, monkeypatch):
+    client, _, _ = api
+
+    def broken():
+        raise RuntimeError("model file missing at /var/task/models")
+
+    monkeypatch.setattr(hosted.runtime, "retriever", broken)
+    response = client.post("/api/warm")
+
+    assert response.status_code == 503
+    assert response.json() == {"ready": False}
 
 
 def test_no_cors_headers_for_other_origins_by_default(api):

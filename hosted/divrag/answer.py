@@ -34,6 +34,11 @@ NOT_FOUND = "NOT_IN_DOCUMENTS"
 # Cross-encoder (ms-marco MiniLM) score above which another division's best
 # passage counts as relevant enough to suggest asking that division instead.
 SUGGEST_THRESHOLD = 0.0
+# Vector hits of another division reranked for the suggestion. Against 20, every
+# yes/no decision on 70 question-division pairs was the same from 8 up (with 5,
+# the open-cut trench question asked of Work Zone lost its "ask Utilities");
+# reranking 20 added about 4.6 s to every refusal on Vercel.
+SUGGEST_CANDIDATES = 10
 # A refusal is retried once when the best passage's reranker score is at least
 # this. Scores of questions the documents answer were 0.9-7.8 (bore-and-jack
 # cover, which the free model sometimes refused: 3.5); questions they don't
@@ -310,7 +315,7 @@ class Answerer:
         for division in DIVISIONS:
             if division.id == target.id:
                 continue
-            hits = self.retriever.retrieve(question, division=division.id, k=1)
+            hits = self.retriever.retrieve(question, division=division.id, k=1, candidates=SUGGEST_CANDIDATES)
             if hits and hits[0].score >= SUGGEST_THRESHOLD:
                 suggest.append(division.id)
         return suggest

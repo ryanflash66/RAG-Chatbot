@@ -121,6 +121,34 @@ def test_step_timer_adds_up_repeats_and_reports_every_step():
             pass
 
 
+def test_retriever_can_rerank_fewer_candidates_for_one_call():
+    reranker = _RecordingReranker()
+    retriever = Retriever(_two_division_index(), _FakeEmbedder(), reranker, candidates=20)
+
+    retriever.retrieve("q", division="b", k=1, candidates=2)
+
+    assert len(reranker.seen) == 2  # not all 3 of b's chunks
+
+
+class _RecordingEmbedder(_FakeEmbedder):
+    def __init__(self):
+        self.questions = []
+
+    def query(self, question):
+        self.questions.append(question)
+        return super().query(question)
+
+
+def test_warm_up_runs_each_model_once_on_short_text():
+    embedder, reranker = _RecordingEmbedder(), _RecordingReranker()
+
+    Retriever(_two_division_index(), embedder, reranker).warm_up()
+
+    assert embedder.questions == ["warm up"]
+    assert reranker.seen == ["warm up"]  # one short passage, not 20 real ones
+    Retriever(_two_division_index(), _RecordingEmbedder(), None).warm_up()  # no reranker: nothing to warm
+
+
 def test_retriever_without_reranker_keeps_vector_order():
     retriever = Retriever(_two_division_index(), _FakeEmbedder(), None)
     assert [h.chunk["text"] for h in retriever.retrieve("q", division="b", k=2)] == ["b1", "b2"]

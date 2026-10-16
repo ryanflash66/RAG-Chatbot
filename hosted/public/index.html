@@ -359,11 +359,24 @@
     });
   }
 
+  // Load the search models while the visitor picks divisions and types. api/warm answers once they are
+  // loaded (at once on a warm instance); it is re-sent at most every 30 s because an idle instance can be stopped.
+  var warm = { inFlight: false, at: 0 };
+  function warmUp() {
+    if (warm.inFlight || Date.now() - warm.at < 30000) return;
+    warm.inFlight = true;
+    fetch("api/warm", { method: "POST" }).then(function (r) {
+      if (r.ok) warm.at = Date.now();
+    }).catch(function () {}).then(function () { warm.inFlight = false; });
+  }
+
   asker.addEventListener("change", function () {
     if (asker.value === target.value) { target.value = other(asker.value); renderTarget(); }
+    warmUp();
   });
-  target.addEventListener("change", renderTarget);
-  question.addEventListener("input", updateCount);
+  target.addEventListener("change", function () { renderTarget(); warmUp(); });
+  question.addEventListener("focus", warmUp);
+  question.addEventListener("input", function () { updateCount(); warmUp(); });
   question.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ask(); }
   });
@@ -381,6 +394,7 @@
     asker.value = data.divisions[0].id;
     target.value = other(asker.value);
     renderTarget();
+    warmUp();
     el("doc-list").innerHTML = data.divisions.map(function (d) {
       return d.documents.map(function (doc) {
         return '<li>' + escapeHtml(d.name) + ': <a href="' + escapeHtml(doc.url) + '" target="_blank" rel="noopener">' + escapeHtml(doc.title) + "</a></li>";

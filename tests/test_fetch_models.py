@@ -14,7 +14,7 @@ _spec = importlib.util.spec_from_file_location("fetch_models", HOSTED / "scripts
 fetch_models = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fetch_models)
 
-from divrag.embedder import MODEL_NAME, RERANK_MODEL_NAME  # noqa: E402
+from divrag.embedder import MODEL_NAME, RERANK_MODEL_FILE, RERANK_MODEL_NAME, cross_encoder_name  # noqa: E402
 
 
 def test_models_match_what_fastembed_loads():
@@ -25,10 +25,21 @@ def test_models_match_what_fastembed_loads():
     for desc in TextEmbedding._list_supported_models():
         if desc.model == MODEL_NAME:
             wanted[desc.sources.hf] = desc.model_file
+    name = cross_encoder_name()  # the quantized file, registered as a custom model
     for desc in TextCrossEncoder._list_supported_models():
-        if desc.model == RERANK_MODEL_NAME:
+        if desc.model == name:
             wanted[desc.sources.hf] = desc.model_file
+    assert wanted[RERANK_MODEL_NAME] == RERANK_MODEL_FILE == "onnx/model_quantized.onnx"
     assert {m["repo"]: m["model_file"] for m in fetch_models.MODELS} == wanted
+
+
+def test_cross_encoder_name_registers_once_and_keeps_fastembeds_own_file():
+    from fastembed.rerank.cross_encoder import TextCrossEncoder
+
+    assert cross_encoder_name() == cross_encoder_name()  # a second call doesn't register it again
+    listed = [m.model for m in TextCrossEncoder._list_supported_models()]
+    assert listed.count(cross_encoder_name()) == 1
+    assert cross_encoder_name(RERANK_MODEL_NAME, "onnx/model.onnx") == RERANK_MODEL_NAME
 
 
 def _fake_hub(files):
