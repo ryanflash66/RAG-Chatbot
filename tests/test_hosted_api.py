@@ -186,6 +186,7 @@ def test_page_divisions_and_health_expose_no_secrets(api):
     assert [d["id"] for d in divisions["divisions"]] == ["wztc", "utilities"]
     assert all(d["examples"] and d["documents"][0]["url"].startswith("https://connect.ncdot.gov/") for d in divisions["divisions"])
     assert health["llm_configured"] is True
+    assert health["cpus"]["cpu_count"] >= 1
     assert all(m.endswith(":free") for m in health["llm_models"])
     for text in (page.text, str(divisions), str(health)):
         assert SECRET not in text

@@ -34,7 +34,7 @@ from pydantic import BaseModel, Field
 from divrag.answer import Answerer
 from divrag.config import Settings, load_settings
 from divrag.divisions import BY_ID, DIVISIONS
-from divrag.embedder import Embedder, Reranker, model_cache_dir
+from divrag.embedder import Embedder, Reranker, cpu_info, model_cache_dir
 from divrag.index_file import IndexFile
 from divrag.llm import MISCONFIGURED, TOO_SLOW, LLMError, OpenRouterClient
 from divrag.retrieval import Retriever
@@ -180,6 +180,7 @@ def health() -> Dict:
         "rerank": settings.rerank,
         "llm_models": list(settings.models),
         "llm_configured": bool(settings.openrouter_api_key),
+        "cpus": cpu_info(),
     }
 
 

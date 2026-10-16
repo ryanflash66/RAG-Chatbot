@@ -22,7 +22,7 @@ Model files are read from (and on first use downloaded into) `model_cache_dir()`
 import os
 import tempfile
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Union
 
 import numpy as np
 
@@ -50,6 +50,29 @@ def model_cache_dir() -> str:
     return os.path.join(tempfile.gettempdir(), "fastembed_cache")
 
 
+def onnx_threads() -> Optional[int]:
+    """onnxruntime threads per model: ONNX_THREADS when set, else onnxruntime's default (None).
+
+    onnxruntime sizes its thread pool from the cores the machine reports, which
+    can be more than a serverless instance's share of CPU.
+    """
+    configured = os.environ.get("ONNX_THREADS", "").strip()
+    return max(1, int(configured)) if configured else None
+
+
+def cpu_info() -> Dict[str, Union[int, str, None]]:
+    """What this instance reports about its CPUs, for /api/health."""
+    info: Dict[str, Union[int, str, None]] = {"cpu_count": os.cpu_count(), "onnx_threads": onnx_threads()}
+    if hasattr(os, "sched_getaffinity"):
+        info["affinity"] = len(os.sched_getaffinity(0))
+    for path in ("/sys/fs/cgroup/cpu.max", "/sys/fs/cgroup/cpu/cpu.cfs_quota_us"):
+        try:
+            info["cgroup_" + Path(path).name] = Path(path).read_text().strip()[:40]
+        except OSError:
+            pass
+    return info
+
+
 class Embedder:
     """Unit-length float32 embeddings; the model loads on first use.
 
@@ -68,7 +91,7 @@ class Embedder:
             from fastembed import TextEmbedding
 
             kwargs = {"specific_model_path": self._model_dir} if self._model_dir else {}
-            self._model = TextEmbedding(self.model_name, cache_dir=self._cache_dir, **kwargs)
+            self._model = TextEmbedding(self.model_name, cache_dir=self._cache_dir, threads=onnx_threads(), **kwargs)
         return self._model
 
     def passages(self, texts: Iterable[str], batch_size: int = 32) -> np.ndarray:
@@ -113,7 +136,8 @@ class Reranker:
         if self._model is None:
             from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-            self._model = TextCrossEncoder(cross_encoder_name(self.model_name, self.model_file), cache_dir=self._cache_dir)
+            self._model = TextCrossEncoder(cross_encoder_name(self.model_name, self.model_file), cache_dir=self._cache_dir,
+                                           threads=onnx_threads())
         return self._model
 
     def scores(self, question: str, passages: List[str]) -> List[float]:

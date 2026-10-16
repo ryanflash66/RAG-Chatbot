@@ -12,6 +12,7 @@ for the public demo.
     RERANK_CANDIDATES           vector hits handed to the reranker (default 20)
     TOP_K                       passages given to the model (default 5)
     MODEL_CACHE_DIR             fastembed model directory (see embedder.model_cache_dir)
+    ONNX_THREADS                onnxruntime threads per model (default: onnxruntime's own choice; see embedder.onnx_threads)
     INDEX_DIR                   directory with chunks.json and vectors.npy (default hosted/index)
     MAX_QUESTION_CHARS          default 500
     RATE_LIMIT_PER_MINUTE       questions per client IP per minute, per server instance (default 8)
