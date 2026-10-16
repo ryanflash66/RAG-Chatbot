@@ -286,6 +286,13 @@ def test_refusal_is_returned_when_the_retry_fails_or_runs_out_of_time():
     assert slow.refused and time.monotonic() - started < 1.5  # gave up before the request deadline
 
 
+def test_no_retry_when_less_than_the_retry_margin_is_left():
+    result, llm = _ask_with_retry([NOT_FOUND, "Three feet [1]."], score=3.5, seconds_left=0.5, retry_min_seconds=0.0)
+
+    assert result.refused and not result.retried  # not reported as a retry that never got to call the model
+    assert len(llm.calls) == 1
+
+
 def test_retry_settings_have_defaults_and_can_be_changed():
     default = load_settings({})
     assert (default.retry_on_refusal, default.retry_min_score, default.retry_min_seconds) == (True, 1.0, 15.0)

@@ -321,7 +321,11 @@ class Answerer:
             return False
         if max(hit.score for hit in hits) < self.retry_min_score:
             return False
-        return deadline is None or deadline - time.monotonic() >= self.retry_min_seconds
+        if deadline is None:
+            return True
+        left = deadline - time.monotonic()
+        # More than the margin must be left, or _retry would give the call no time and report a retry that never ran.
+        return left >= self.retry_min_seconds and left > RETRY_MARGIN_SECONDS
 
     async def _retry(self, messages: List[Dict[str, str]], first: Completion, hits: List[Hit],
                      deadline: Optional[float]) -> Optional[Tuple[Completion, str, List[Source]]]:

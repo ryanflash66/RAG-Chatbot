@@ -2,7 +2,9 @@
 
 The steps, in pipeline order:
 
-    model_load  loading the embedding and reranker models (only on a cold instance)
+    model_load  loading the embedding and reranker models, including the one warm-up
+                query that runs their first inference (only on a cold instance; the
+                question's own embed, search and rerank are timed separately)
     embed       turning the question into a vector
     search      the vector search within the asked division
     rerank      the cross-encoder re-reading the search's candidates
