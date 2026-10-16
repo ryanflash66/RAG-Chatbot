@@ -2,7 +2,7 @@
 
     GET  /                the page (public/index.html)
     GET  /api/divisions   divisions, their documents and example questions
-    POST /api/ask         {"question", "asker", "target"} -> answer with cited sources
+    POST /api/ask         {"question", "asker", "target"} -> answer with cited sources and timing_ms per step
     GET  /api/health      index and model settings (no secrets)
 
 Vercel loads `app` from this file (a FastAPI entrypoint at the project root,
@@ -33,6 +33,7 @@ from divrag.embedder import Embedder, Reranker, model_cache_dir
 from divrag.index_file import IndexFile
 from divrag.llm import MISCONFIGURED, TOO_SLOW, LLMError, OpenRouterClient
 from divrag.retrieval import Retriever
+from divrag.timing import StepTimer
 
 PUBLIC_DIR = Path(__file__).resolve().parent / "public"
 # The answer call always gets at least this long, even if retrieval ate the budget.
@@ -191,31 +192,43 @@ async def ask(body: AskRequest, request: Request):
         return _error(503, MISCONFIGURED)
 
     started = time.perf_counter()
+    timer = StepTimer()
     try:
-        answerer = await asyncio.to_thread(runtime.answerer, _make_llm())
-        hits = await asyncio.to_thread(answerer.retrieve, question, target)
+        with timer.step("model_load"):  # waits for the models on a cold instance, near 0 once loaded
+            answerer = await asyncio.to_thread(runtime.answerer, _make_llm())
+        hits = await asyncio.to_thread(answerer.retrieve, question, target, timer)
         retrieved = time.perf_counter()
         # httpx's timeout is per phase, so bound the whole call to stay under Vercel's 60 s.
         remaining = max(MIN_ANSWER_SECONDS, settings.request_budget_seconds - (retrieved - started))
         try:
             deadline = time.monotonic() + remaining
-            result = await asyncio.wait_for(answerer.answer(question, asker, target, hits, deadline), timeout=remaining)
+            result = await asyncio.wait_for(answerer.answer(question, asker, target, hits, deadline, timer),
+                                            timeout=remaining)
         except asyncio.TimeoutError as exc:
             raise LLMError(TOO_SLOW, status=504, detail=f"no answer within {remaining:.0f}s") from exc
     except LLMError as exc:
-        log.warning("LLM error: %s", exc)
+        log.warning("LLM error: %s ms %s", exc, _ms_text(dict(timer.as_ms(), total=_ms_since(started))))
         return _error(exc.status, exc.user_message)
     except Exception:  # noqa: BLE001 - never send internals to the browser
-        log.exception("ask failed")
+        log.exception("ask failed ms %s", _ms_text(dict(timer.as_ms(), total=_ms_since(started))))
         return _error(500, "Something went wrong answering that question. Please try again.")
-    finished = time.perf_counter()
+    timing = dict(timer.as_ms(), retrieval=round((retrieved - started) * 1000), total=_ms_since(started))
     log.info(
-        "ask asker=%s target=%s chars=%d refused=%s retried=%s sources=%d model=%s retrieval=%.2fs total=%.2fs",
+        "ask asker=%s target=%s chars=%d refused=%s retried=%s sources=%d model=%s first_model=%s ms %s",
         asker.id, target.id, len(question), result.refused, result.retried, len(result.sources), result.model,
-        retrieved - started, finished - started,
+        result.first_model, _ms_text(timing),
     )
     payload = result.as_dict()
     payload["asker"] = {"id": asker.id, "name": asker.name}
     payload["target"] = {"id": target.id, "name": target.name}
-    payload["timing_ms"] = {"retrieval": round((retrieved - started) * 1000), "total": round((finished - started) * 1000)}
+    payload["timing_ms"] = timing
     return payload
+
+
+def _ms_since(started: float) -> int:
+    return round((time.perf_counter() - started) * 1000)
+
+
+def _ms_text(timing: Dict[str, int]) -> str:
+    """The timings as "embed=12 search=3 ..." for the log line."""
+    return " ".join(f"{step}={ms}" for step, ms in timing.items())

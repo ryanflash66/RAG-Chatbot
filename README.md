@@ -198,6 +198,8 @@ A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Contr
 
 Retrieval searches only the asked division's chunks (BAAI/bge-small-en-v1.5 via fastembed). It reranks the top 20 with the ONNX cross-encoder `Xenova/ms-marco-MiniLM-L-6-v2` and keeps 5, plus the next chunk of the top 2 hits. Consecutive chunks are merged so that a rule running across a page break reaches the model whole. The answer comes from a free OpenRouter model (`nvidia/nemotron-3-ultra-550b-a55b:free`, falling back to `nvidia/nemotron-3-super-120b-a12b:free` and `google/gemma-4-31b-it:free`). Paid models are refused at startup.
 
+Every `/api/ask` reply has `timing_ms`, the milliseconds spent in each step: `model_load` (only on a cold instance), `embed`, `search`, `rerank`, `llm`, `citations`, `retry` and `suggest` (0 when they didn't run), plus `retrieval` and `total`. `model` names the model that wrote the reply and `first_model` the one that answered the first call (OpenRouter may have fallen back from the primary to a backup); they differ when a retry produced the answer. `model_load` includes the one warm-up query that runs the models' first inference. The page shows the steps under each answer, and the server logs one `ask ...` line per question with the same numbers. The steps are listed in `hosted/divrag/timing.py`.
+
 Run it locally (needs `OPENROUTER_API_KEY` in `.env`):
 
 ```bash

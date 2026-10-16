@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from .embedder import Embedder, Reranker
 from .index_file import Hit, IndexFile
+from .timing import StepTimer, timed
 
 DEFAULT_CANDIDATES = 20
 
@@ -20,16 +21,22 @@ class Retriever:
         self.reranker = reranker
         self.candidates = candidates
 
-    def retrieve(self, question: str, division: Optional[str], k: int = 5) -> List[Hit]:
+    def retrieve(self, question: str, division: Optional[str], k: int = 5,
+                 timer: Optional[StepTimer] = None) -> List[Hit]:
         """The k best chunks of `division` for the question (all divisions when None).
 
         With a reranker, the top `candidates` vector hits are re-ordered by the
-        cross-encoder and their scores are the cross-encoder's.
+        cross-encoder and their scores are the cross-encoder's. `timer` records
+        the embed, search and rerank steps.
         """
         pool = max(k, self.candidates) if self.reranker else k
-        hits = self.index.search(self.embedder.query(question), k=pool, division=division)
+        with timed(timer, "embed"):
+            vector = self.embedder.query(question)
+        with timed(timer, "search"):
+            hits = self.index.search(vector, k=pool, division=division)
         if self.reranker and len(hits) > 1:
-            scores = self.reranker.scores(question, [h.chunk["text"] for h in hits])
+            with timed(timer, "rerank"):
+                scores = self.reranker.scores(question, [h.chunk["text"] for h in hits])
             hits = [Hit(s, h.chunk) for s, h in sorted(zip(scores, hits), key=lambda pair: -pair[0])]
         return hits[:k]
 

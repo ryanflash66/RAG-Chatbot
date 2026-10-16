@@ -15,6 +15,7 @@ import index as hosted  # noqa: E402
 from divrag.answer import NOT_FOUND  # noqa: E402
 from divrag.index_file import Hit  # noqa: E402
 from divrag.llm import BUSY, TOO_SLOW, Completion, LLMError  # noqa: E402
+from divrag.timing import STEPS  # noqa: E402
 
 UAM = "20220713 NCDOT UAM Ver 2-0.pdf"
 SECRET = "sk-or-test-secret"
@@ -26,8 +27,11 @@ class _FakeRetriever:
     def __init__(self):
         self.divisions = []
 
-    def retrieve(self, question, division, k=5):
+    def retrieve(self, question, division, k=5, timer=None):
         self.divisions.append(division)
+        if timer is not None:
+            with timer.step("embed"):
+                pass
         text = "Any work within 5 feet of the edge of any travel lane shall require a lane closure."
         return [Hit(2.0, {"text": text, "source": UAM, "page": 126, "division": division,
                           "section": "3.6.4.1 Lane and Road Closures"})]
@@ -87,6 +91,26 @@ def test_cross_division_answer_cites_document_page_and_url(api):
     assert retriever.divisions == ["utilities"]  # only the asked division was searched
     assert "Work Zone Traffic Control" in llm.messages[0]["content"]  # the asker frames the answer
     assert SECRET not in response.text
+
+
+def test_every_answer_reports_each_step_in_ms_and_logs_one_line(api, caplog):
+    client, _, llm = api
+
+    with caplog.at_level("INFO", logger="hosted"):
+        answered = _ask(client).json()
+        llm.reply = NOT_FOUND
+        refused = _ask(client).json()
+
+    for data in (answered, refused):
+        timing = data["timing_ms"]
+        assert list(timing) == list(STEPS) + ["retrieval", "total"]
+        assert all(isinstance(ms, int) and ms >= 0 for ms in timing.values())
+        assert timing["total"] >= timing["retrieval"]
+        assert data["model"] == "test/model:free" and data["retried"] is False
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("ask ")]
+    assert len(lines) == 2
+    assert all("model=test/model:free" in line and " embed=" in line and " rerank=" in line and " total=" in line
+               for line in lines)
 
 
 def test_refusal_has_a_clear_message_and_no_sources(api):

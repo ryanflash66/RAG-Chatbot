@@ -28,6 +28,7 @@ from .divisions import BY_ID, DIVISIONS, Division, document_for
 from .index_file import Hit
 from .llm import Completion, LLMError, OpenRouterClient
 from .retrieval import Retriever
+from .timing import StepTimer, timed
 
 NOT_FOUND = "NOT_IN_DOCUMENTS"
 # Cross-encoder (ms-marco MiniLM) score above which another division's best
@@ -99,6 +100,7 @@ class Answer:
     model: Optional[str] = None
     suggest: List[str] = field(default_factory=list)  # division ids worth asking instead
     retried: bool = False  # a refusal was followed by a second model call
+    first_model: Optional[str] = None  # the model that answered the first call (differs from `model` after a retry)
 
     def as_dict(self) -> Dict:
         return {
@@ -106,6 +108,8 @@ class Answer:
             "refused": self.refused,
             "sources": [s.as_dict() for s in self.sources],
             "model": self.model,
+            "first_model": self.first_model,
+            "retried": self.retried,
             "suggest": [{"id": d, "name": BY_ID[d].name} for d in self.suggest],
         }
 
@@ -294,8 +298,8 @@ class Answerer:
         self.retry_min_score = retry_min_score  # None: never retry
         self.retry_min_seconds = retry_min_seconds
 
-    def retrieve(self, question: str, target: Division) -> List[Hit]:
-        hits = self.retriever.retrieve(question, division=target.id, k=self.top_k)
+    def retrieve(self, question: str, target: Division, timer: Optional[StepTimer] = None) -> List[Hit]:
+        hits = self.retriever.retrieve(question, division=target.id, k=self.top_k, timer=timer)
         return self.retriever.as_passages(self.retriever.with_following(hits, top=FOLLOWING_FOR_TOP))
 
     def suggest_divisions(self, question: str, target: Division) -> List[str]:
@@ -317,7 +321,11 @@ class Answerer:
             return False
         if max(hit.score for hit in hits) < self.retry_min_score:
             return False
-        return deadline is None or deadline - time.monotonic() >= self.retry_min_seconds
+        if deadline is None:
+            return True
+        left = deadline - time.monotonic()
+        # More than the margin must be left, or _retry would give the call no time and report a retry that never ran.
+        return left >= self.retry_min_seconds and left > RETRY_MARGIN_SECONDS
 
     async def _retry(self, messages: List[Dict[str, str]], first: Completion, hits: List[Hit],
                      deadline: Optional[float]) -> Optional[Tuple[Completion, str, List[Source]]]:
@@ -336,20 +344,30 @@ class Answerer:
         return (second, text, sources) if sources else None
 
     async def answer(self, question: str, asker: Division, target: Division, hits: List[Hit],
-                     deadline: Optional[float] = None) -> Answer:
-        """Answer from the hits. `deadline` is a time.monotonic() value that bounds the optional retry."""
+                     deadline: Optional[float] = None, timer: Optional[StepTimer] = None) -> Answer:
+        """Answer from the hits.
+
+        `deadline` is a time.monotonic() value that bounds the optional retry;
+        `timer` records the llm, citations, retry and suggest steps.
+        """
         if not hits:
             return Answer(refusal_text(target, []), refused=True)
         messages = build_messages(question, asker, target, hits)
-        completion = await self.llm.complete(messages)
-        text, sources = _grade(completion.text, hits)
+        with timed(timer, "llm"):
+            completion = await self.llm.complete(messages)
+        first_model = completion.model
+        with timed(timer, "citations"):
+            text, sources = _grade(completion.text, hits)
         retried = False
         if not sources and self._worth_retrying(hits, deadline):
             retried = True
-            second = await self._retry(messages, completion, hits, deadline)
+            with timed(timer, "retry"):
+                second = await self._retry(messages, completion, hits, deadline)
             if second:
                 completion, text, sources = second
         if not sources:
-            suggest = await asyncio.to_thread(self.suggest_divisions, question, target)
-            return Answer(refusal_text(target, suggest), refused=True, model=completion.model, suggest=suggest, retried=retried)
-        return Answer(text, refused=False, sources=sources, model=completion.model, retried=retried)
+            with timed(timer, "suggest"):
+                suggest = await asyncio.to_thread(self.suggest_divisions, question, target)
+            return Answer(refusal_text(target, suggest), refused=True, model=completion.model, suggest=suggest,
+                          retried=retried, first_model=first_model)
+        return Answer(text, refused=False, sources=sources, model=completion.model, retried=retried, first_model=first_model)

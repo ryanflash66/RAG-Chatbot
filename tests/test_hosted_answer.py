@@ -17,6 +17,7 @@ from divrag.config import load_settings  # noqa: E402
 from divrag.divisions import BY_ID  # noqa: E402
 from divrag.index_file import Hit  # noqa: E402
 from divrag.llm import BUSY, DAILY_LIMIT, UNAVAILABLE, Completion, LLMError, OpenRouterClient  # noqa: E402
+from divrag.timing import StepTimer  # noqa: E402
 
 UAM = "20220713 NCDOT UAM Ver 2-0.pdf"
 TMP = "TMP Design Manual (Combined, No Links).pdf"
@@ -128,7 +129,7 @@ class _FakeRetriever:
         self.reranker = object() if reranker else None
         self.searched = []
 
-    def retrieve(self, question, division, k=5):
+    def retrieve(self, question, division, k=5, timer=None):
         self.searched.append(division)
         source = TMP if division == "wztc" else UAM
         return [_hit(10, source=source, division=division, score=self.scores[division])]
@@ -193,6 +194,46 @@ def test_refusal_despite_strong_retrieval_is_retried_once_with_the_next_model(fi
     assert llm.calls[0] == llm.calls[1]  # same prompt, different model
 
 
+class _SlowLLM(_FakeLLM):
+    async def complete(self, messages, models=None):
+        await asyncio.sleep(0.03)
+        return await super().complete(messages, models)
+
+
+def test_answer_times_the_model_call_citations_and_retry_and_names_both_models():
+    timer = StepTimer()
+    retriever = _FakeRetriever({"wztc": -9.0, "utilities": 3.5})
+    answerer = Answerer(retriever, _SlowLLM([NOT_FOUND, "Three feet [1]."]))
+    hits = retriever.retrieve("q", "utilities")
+
+    result = asyncio.run(answerer.answer("q", BY_ID["utilities"], BY_ID["utilities"], hits, time.monotonic() + 40, timer))
+
+    ms = timer.as_ms()
+    assert ms["llm"] >= 25 and ms["retry"] >= 25  # one slow call each
+    assert ms["suggest"] == 0  # the retry answered, so no refusal to suggest for
+    assert (result.first_model, result.model) == ("test/model:free", "test/second:free")
+    assert result.as_dict()["first_model"] == "test/model:free" and result.as_dict()["retried"] is True
+
+
+def test_refusal_times_the_search_of_the_other_division_as_suggest():
+    class _SlowRetriever(_FakeRetriever):
+        def retrieve(self, question, division, k=5, timer=None):
+            time.sleep(0.03)
+            return super().retrieve(question, division, k, timer)
+
+    timer = StepTimer()
+    retriever = _SlowRetriever({"wztc": -9.0, "utilities": 0.5})
+    answerer = Answerer(retriever, _FakeLLM(NOT_FOUND))
+    hits = retriever.retrieve("q", "utilities")
+
+    result = asyncio.run(answerer.answer("q", BY_ID["wztc"], BY_ID["utilities"], hits, None, timer))
+
+    ms = timer.as_ms()
+    assert result.refused and not result.retried
+    assert ms["suggest"] >= 25 and ms["retry"] == 0
+    assert ms["embed"] == 0  # the suggestion's own searches are not counted as the question's
+
+
 def test_no_retry_when_retrieval_is_weak():
     result, llm = _ask_with_retry([NOT_FOUND, "Three feet [1]."], score=0.5, seconds_left=40)
 
@@ -243,6 +284,13 @@ def test_refusal_is_returned_when_the_retry_fails_or_runs_out_of_time():
     started = time.monotonic()
     slow = asyncio.run(answerer.answer("q", BY_ID["utilities"], BY_ID["utilities"], hits, started + 1.5))
     assert slow.refused and time.monotonic() - started < 1.5  # gave up before the request deadline
+
+
+def test_no_retry_when_less_than_the_retry_margin_is_left():
+    result, llm = _ask_with_retry([NOT_FOUND, "Three feet [1]."], score=3.5, seconds_left=0.5, retry_min_seconds=0.0)
+
+    assert result.refused and not result.retried  # not reported as a retry that never got to call the model
+    assert len(llm.calls) == 1
 
 
 def test_retry_settings_have_defaults_and_can_be_changed():

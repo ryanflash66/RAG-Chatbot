@@ -1,6 +1,7 @@
 """Tests for the hosted demo's index files: save, load, cosine search and the division filter."""
 
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hosted"))
 
 from divrag.index_file import Hit, IndexFile  # noqa: E402
 from divrag.retrieval import Retriever  # noqa: E402
+from divrag.timing import STEPS, StepTimer  # noqa: E402
 
 
 def _unit(rows):
@@ -86,6 +88,37 @@ def test_retriever_reranks_only_the_asked_divisions_chunks():
     assert set(reranker.seen) == {"a1", "a2"}
     assert [h.chunk["text"] for h in hits] == ["a2", "a1"]  # reranker order, not vector order
     assert all(h.chunk["division"] == "a" for h in hits)
+
+
+class _SlowReranker(_RecordingReranker):
+    def scores(self, question, passages):
+        time.sleep(0.03)
+        return super().scores(question, passages)
+
+
+def test_retriever_times_embed_search_and_rerank_separately():
+    timer = StepTimer()
+    Retriever(_two_division_index(), _FakeEmbedder(), _SlowReranker()).retrieve("q", division="a", k=5, timer=timer)
+
+    ms = timer.as_ms()
+    assert ms["rerank"] >= 25
+    assert ms["embed"] < 25 and ms["search"] < 25
+    assert ms["llm"] == 0  # not a retrieval step
+
+
+def test_step_timer_adds_up_repeats_and_reports_every_step():
+    timer = StepTimer()
+    for _ in range(2):
+        with timer.step("embed"):
+            time.sleep(0.02)
+
+    ms = timer.as_ms()
+    assert list(ms) == list(STEPS)
+    assert ms["embed"] >= 35
+    assert ms["retry"] == 0
+    with pytest.raises(ValueError):
+        with timer.step("typo"):
+            pass
 
 
 def test_retriever_without_reranker_keeps_vector_order():
