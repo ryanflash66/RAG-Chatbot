@@ -51,17 +51,13 @@ def model_cache_dir() -> str:
 
 
 def onnx_threads() -> Optional[int]:
-    """onnxruntime threads per model: ONNX_THREADS when set; else 1 on a machine reporting
-    2 CPUs or fewer; else onnxruntime's default (None).
+    """onnxruntime threads per model: ONNX_THREADS when set, else onnxruntime's default (None).
 
-    onnxruntime sizes its thread pool from the cores the machine reports. A Vercel
-    instance reports 2 CPUs but gets about one CPU's worth of time on the Hobby
-    plan, so a second thread only competes with the first.
+    onnxruntime sizes its thread pool from the cores the machine reports, which
+    can be more than a serverless instance's share of CPU.
     """
     configured = os.environ.get("ONNX_THREADS", "").strip()
-    if configured:
-        return max(1, int(configured))
-    return 1 if (os.cpu_count() or 1) <= 2 else None
+    return max(1, int(configured)) if configured else None
 
 
 def cpu_info() -> Dict[str, Union[int, str, None]]:
