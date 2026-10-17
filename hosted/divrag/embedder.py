@@ -94,6 +94,10 @@ class Embedder:
             self._model = TextEmbedding(self.model_name, cache_dir=self._cache_dir, threads=onnx_threads(), **kwargs)
         return self._model
 
+    def load(self) -> None:
+        """Load the model now instead of on first use."""
+        self._load()
+
     def passages(self, texts: Iterable[str], batch_size: int = 32) -> np.ndarray:
         vectors = np.array(list(self._load().embed(list(texts), batch_size=batch_size)), dtype=np.float32)
         return _unit(vectors)
@@ -139,6 +143,10 @@ class Reranker:
             self._model = TextCrossEncoder(cross_encoder_name(self.model_name, self.model_file), cache_dir=self._cache_dir,
                                            threads=onnx_threads())
         return self._model
+
+    def load(self) -> None:
+        """Load the model now instead of on first use."""
+        self._load()
 
     def scores(self, question: str, passages: List[str]) -> List[float]:
         if not passages:

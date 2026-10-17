@@ -74,8 +74,8 @@ class _Runtime:
                 embedder = Embedder(self.index.model, cache_dir=cache)
                 reranker = Reranker(cache_dir=cache) if self.settings.rerank else None
                 retriever = Retriever(self.index, embedder, reranker, candidates=self.settings.rerank_candidates)
-                retriever.warm_up()
-                log.info("models loaded from %s in %.1fs", cache, time.perf_counter() - started)
+                warm_up_ms = retriever.warm_up()
+                log.info("models loaded from %s in %.1fs (%s)", cache, time.perf_counter() - started, _ms_text(warm_up_ms))
                 self._retriever = retriever
             return self._retriever
 

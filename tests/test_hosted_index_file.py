@@ -73,6 +73,10 @@ class _RecordingReranker:
 
     def __init__(self):
         self.seen = []
+        self.loaded = False
+
+    def load(self):
+        self.loaded = True
 
     def scores(self, question, passages):
         self.seen.extend(passages)
@@ -133,20 +137,30 @@ def test_retriever_can_rerank_fewer_candidates_for_one_call():
 class _RecordingEmbedder(_FakeEmbedder):
     def __init__(self):
         self.questions = []
+        self.loaded = False
+
+    def load(self):
+        self.loaded = True
 
     def query(self, question):
         self.questions.append(question)
         return super().query(question)
 
 
-def test_warm_up_runs_each_model_once_on_short_text():
+def test_warm_up_loads_the_models_and_reranks_the_longest_chunks():
     embedder, reranker = _RecordingEmbedder(), _RecordingReranker()
+    index = _two_division_index()
+    index.chunks[3]["text"] = "b2 " * 300
+    index.chunks[0]["text"] = "a1 " * 200
 
-    Retriever(_two_division_index(), embedder, reranker).warm_up()
+    ms = Retriever(index, embedder, reranker).warm_up()
 
+    assert embedder.loaded and reranker.loaded
     assert embedder.questions == ["warm up"]
-    assert reranker.seen == ["warm up"]  # one short passage, not 20 real ones
-    Retriever(_two_division_index(), _RecordingEmbedder(), None).warm_up()  # no reranker: nothing to warm
+    assert sorted(reranker.seen) == sorted(["a1 " * 200, "b2 " * 300])  # full-length passages, not 20 of them
+    assert set(ms) == {"load", "embed", "rerank"}
+    ms = Retriever(index, _RecordingEmbedder(), None).warm_up()  # no reranker: nothing to warm
+    assert set(ms) == {"load", "embed"}
 
 
 def test_retriever_without_reranker_keeps_vector_order():
