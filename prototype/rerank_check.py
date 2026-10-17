@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from prototype import HOSTED_DIR
-from divrag.embedder import Embedder, Reranker, model_cache_dir
+from divrag.embedder import RERANK_BATCH_SIZE, Embedder, Reranker, model_cache_dir
 from divrag.index_file import IndexFile
 from divrag.retrieval import DEFAULT_CANDIDATES
 
@@ -67,7 +67,7 @@ class Setting:
         parts = spec.split("/")
         self.name = spec
         self.tokens = int(parts[0])
-        self.batch = int(parts[1]) if len(parts) > 1 else 32
+        self.batch = int(parts[1]) if len(parts) > 1 else RERANK_BATCH_SIZE
         fp32 = len(parts) > 2 and parts[2] == "fp32"
         self.reranker = Reranker(cache_dir=fp32_cache, model_file="onnx/model.onnx") if fp32 else Reranker(cache_dir=cache)
         self.model = self.reranker._load()
@@ -79,8 +79,9 @@ class Setting:
 
 def main(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="python -m prototype.rerank_check", description=__doc__.splitlines()[0])
-    parser.add_argument("--settings", nargs="+", default=["512/32", "384/32", "256/32"],
-                        help="TOKENS[/BATCH[/fp32]] per setting (default batch 32, as the hosted app; fp32: the unquantized file)")
+    parser.add_argument("--settings", nargs="+", default=["512", "384", "256"],
+                        help=f"TOKENS[/BATCH[/fp32]] per setting (default batch {RERANK_BATCH_SIZE}, as the hosted app; "
+                             "fp32: the unquantized file)")
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--index", default=str(HOSTED_DIR / "index"))
     parser.add_argument("--fp32-cache", default=str(Path(tempfile.gettempdir()) / "fastembed_cache"),
