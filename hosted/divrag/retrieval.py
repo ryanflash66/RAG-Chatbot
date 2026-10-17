@@ -4,16 +4,13 @@ The division filter is applied inside the vector search (IndexFile.search), so
 the reranker and the answer only ever see the asked division's chunks.
 """
 
-import time
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from .embedder import Embedder, Reranker
 from .index_file import Hit, IndexFile
 from .timing import StepTimer, timed
 
 DEFAULT_CANDIDATES = 20
-# Passages the warm-up reranks: the index's longest, so each fills the reranker's 512 tokens.
-WARM_UP_PASSAGES = 2
 
 
 class Retriever:
@@ -43,32 +40,22 @@ class Retriever:
             hits = [Hit(s, h.chunk) for s, h in sorted(zip(scores, hits), key=lambda pair: -pair[0])]
         return hits[:k]
 
-    def warm_up(self) -> Dict[str, int]:
-        """Load the models and run each once; returns the milliseconds of each part.
+    def warm_up(self) -> None:
+        """Load the models and run each once on a few words.
 
         The first inference of an ONNX model is slow, so a cold instance runs one
-        before the first question. A few words were not enough for the reranker:
-        on Vercel the first two questions after such a warm-up still reranked
-        about 0.6 s slower than later ones (4.3-4.4 s against 3.7 s). So it reads
-        the index's longest chunks, which fill its 512 tokens as most real
-        passages do. Reranking all 20 of a question's passages here took about
-        4.6 s of a cold start on Vercel's CPU; two take a tenth of that.
+        before the first question. Short text is enough: reranking 20 real
+        passages here took about 4.6 s of a cold start on Vercel's CPU. Two
+        full-length passages (the index's longest) added 0.5 s to the warm-up on
+        Vercel and changed nothing after it. With all 20 passages in one batch,
+        the first two questions still reranked about 0.6 s slower than later
+        ones either way; one passage per call (embedder.RERANK_BATCH_SIZE) left
+        the first questions 0.06 s slower than the same questions asked again,
+        after either warm-up.
         """
-        ms: Dict[str, int] = {}
-        started = time.perf_counter()
-        self.embedder.load()
-        if self.reranker:
-            self.reranker.load()
-        ms["load"] = _ms_since(started)
-        started = time.perf_counter()
         self.embedder.query("warm up")
-        ms["embed"] = _ms_since(started)
         if self.reranker:
-            started = time.perf_counter()
-            longest = sorted(self.index.chunks, key=lambda c: len(c["text"]))[-WARM_UP_PASSAGES:]
-            self.reranker.scores("warm up", [c["text"] for c in longest])
-            ms["rerank"] = _ms_since(started)
-        return ms
+            self.reranker.scores("warm up", ["warm up"])
 
     def with_following(self, hits: List[Hit], top: int = 2) -> List[Hit]:
         """The hits, each of the first `top` followed by the next chunk of its document.
@@ -114,10 +101,6 @@ class Retriever:
                 passages.append(hit)
             last_position = position
         return passages
-
-
-def _ms_since(started: float) -> int:
-    return round((time.perf_counter() - started) * 1000)
 
 
 def _join_sections(first, second):
