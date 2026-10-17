@@ -188,17 +188,17 @@ A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Contr
 
 | Path | What it is |
 |---|---|
-| `hosted/index.py` | FastAPI app (`app`): `GET /` page, `GET /api/divisions`, `POST /api/ask`, `GET /api/health` |
+| `hosted/index.py` | FastAPI app (`app`): `GET /` page, `GET /api/divisions`, `POST /api/warm`, `POST /api/ask`, `GET /api/health` |
 | `hosted/public/index.html` | the page (plain HTML/CSS/JS, mobile-first) |
 | `hosted/divrag/` | runtime: `divisions.py` (one row per division), index search with a division filter, fastembed embedder and reranker, OpenRouter client, prompt and citations |
 | `hosted/index/` | the committed index: `chunks.json` (each chunk tagged with its `division`) and float16 `vectors.npy` |
 | `hosted/requirements.txt` | runtime dependencies only: fastembed, numpy, fastapi, httpx |
-| `hosted/scripts/fetch_models.py` | build step: downloads the two ONNX models (pinned commits, about 160 MB) into `hosted/models/` (gitignored) |
+| `hosted/scripts/fetch_models.py` | build step: downloads the two ONNX models (pinned commits, about 90 MB) into `hosted/models/` (gitignored) |
 | `hosted/vercel.json` | Vercel settings: the build command above and a 60 s function limit |
 
-Retrieval searches only the asked division's chunks (BAAI/bge-small-en-v1.5 via fastembed). It reranks the top 20 with the ONNX cross-encoder `Xenova/ms-marco-MiniLM-L-6-v2` and keeps 5, plus the next chunk of the top 2 hits. Consecutive chunks are merged so that a rule running across a page break reaches the model whole. The answer comes from a free OpenRouter model (`nvidia/nemotron-3-ultra-550b-a55b:free`, falling back to `nvidia/nemotron-3-super-120b-a12b:free` and `google/gemma-4-31b-it:free`). Paid models are refused at startup.
+Retrieval searches only the asked division's chunks (BAAI/bge-small-en-v1.5 via fastembed). It reranks the top 20 with the ONNX cross-encoder `Xenova/ms-marco-MiniLM-L-6-v2` (its int8 `onnx/model_quantized.onnx`, which ranked the 32 test questions the same as the fp32 file in half the time) and keeps 5, plus the next chunk of the top 2 hits. Twenty stays because two of those questions need the 14th vector hit. A refusal's "ask the other division instead" check reranks only 10 of that division's hits. Consecutive chunks are merged so that a rule running across a page break reaches the model whole. The answer comes from a free OpenRouter model (`nvidia/nemotron-3-ultra-550b-a55b:free`, falling back to `nvidia/nemotron-3-super-120b-a12b:free` and `google/gemma-4-31b-it:free`). Paid models are refused at startup.
 
-Every `/api/ask` reply has `timing_ms`, the milliseconds spent in each step: `model_load` (only on a cold instance), `embed`, `search`, `rerank`, `llm`, `citations`, `retry` and `suggest` (0 when they didn't run), plus `retrieval` and `total`. `model` names the model that wrote the reply and `first_model` the one that answered the first call (OpenRouter may have fallen back from the primary to a backup); they differ when a retry produced the answer. `model_load` includes the one warm-up query that runs the models' first inference. The page shows the steps under each answer, and the server logs one `ask ...` line per question with the same numbers. The steps are listed in `hosted/divrag/timing.py`.
+Every `/api/ask` reply has `timing_ms`, the milliseconds spent in each step: `model_load` (only on a cold instance), `embed`, `search`, `rerank`, `llm`, `citations`, `retry` and `suggest` (0 when they didn't run), plus `retrieval` and `total`. `model` names the model that wrote the reply and `first_model` the one that answered the first call (OpenRouter may have fallen back from the primary to a backup); they differ when a retry produced the answer. `model_load` includes a warm-up that runs each model once on a few words. The page calls `POST /api/warm` when it opens, when a division is picked and when the visitor starts typing; it answers once the models are loaded, so the first question usually finds them ready. The page shows the steps under each answer, and the server logs one `ask ...` line per question with the same numbers. The steps are listed in `hosted/divrag/timing.py`.
 
 Run it locally (needs `OPENROUTER_API_KEY` in `.env`):
 
@@ -207,7 +207,7 @@ Run it locally (needs `OPENROUTER_API_KEY` in `.env`):
 .venv\Scripts\python -m uvicorn index:app --app-dir hosted --env-file .env --port 8000
 ```
 
-Then open http://localhost:8000. The first question downloads the two ONNX models (about 160 MB) into the system temp directory, unless `hosted/models/` exists (`.venv\Scripts\python hosted/scripts/fetch_models.py` fills it) or `MODEL_CACHE_DIR` points at a copy. `hosted/RESULTS-local.md` has the results of real questions against the local app.
+Then open http://localhost:8000. The first question downloads the two ONNX models (about 90 MB) into the system temp directory, unless `hosted/models/` exists (`.venv\Scripts\python hosted/scripts/fetch_models.py` fills it) or `MODEL_CACHE_DIR` points at a copy. `hosted/RESULTS-local.md` has the results of real questions against the local app.
 
 ### Deploying on Vercel
 
@@ -215,11 +215,11 @@ Live demo: https://ncdot-division-assistant.vercel.app (Vercel project `ncdot-di
 
 - **Root Directory** `hosted`, framework preset FastAPI (`index.py` exports `app`; `public/` is served from the CDN).
 - **Environment variables:** `OPENROUTER_API_KEY` (secret, Production and Preview). The other settings above are optional.
-- **Models:** the Build Command (`hosted/vercel.json`) runs `scripts/fetch_models.py`, so the models ship in the function bundle at `/var/task/models` and a cold start never downloads them. The bundle is about 340 MB (models 160 MB, dependencies 185 MB), under Python's 500 MB limit. Above 250 MB, Vercel installs the Python dependencies when an instance starts (about 2 s).
+- **Models:** the Build Command (`hosted/vercel.json`) runs `scripts/fetch_models.py`, so the models ship in the function bundle at `/var/task/models` and a cold start never downloads them. The bundle is about 280 MB (models 90 MB, dependencies 185 MB), under Python's 500 MB limit. Above 250 MB, Vercel installs the Python dependencies when an instance starts (about 2 s).
 - **Documents** are indexed ahead of time, outside Vercel (see below), and `hosted/index/` is committed.
 - `.vercelignore` limits a `vercel deploy` from the repo root to `hosted/`, so `.env` and the PDFs are never uploaded.
 
-Settings (environment variables, all optional except the key): `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS` (`:free` models only), `LLM_TEMPERATURE` (0.1), `LLM_REASONING` (`off`), `RERANK` (`on`/`off`), `RERANK_CANDIDATES` (20), `TOP_K` (5), `MODEL_CACHE_DIR`, `INDEX_DIR`, `MAX_QUESTION_CHARS` (500), `RATE_LIMIT_PER_MINUTE` (8 per client IP per instance), `REQUEST_BUDGET_SECONDS` (55; total time per question, under Vercel's 60 s), `RETRY_ON_REFUSAL` (`on`: when the model refuses although the best reranker score is at least `RETRY_MIN_SCORE`, 1.0, ask once more with the next model, if `RETRY_MIN_SECONDS`, 15, of the budget remain), `ALLOWED_ORIGINS` (none: same-origin only). See `hosted/divrag/config.py`.
+Settings (environment variables, all optional except the key): `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS` (`:free` models only), `LLM_TEMPERATURE` (0.1), `LLM_REASONING` (`off`), `RERANK` (`on`/`off`), `RERANK_CANDIDATES` (20), `TOP_K` (5), `MODEL_CACHE_DIR`, `ONNX_THREADS` (onnxruntime threads per model; unset uses its default, which measured faster on Vercel than 1), `INDEX_DIR`, `MAX_QUESTION_CHARS` (500), `RATE_LIMIT_PER_MINUTE` (8 per client IP per instance), `REQUEST_BUDGET_SECONDS` (55; total time per question, under Vercel's 60 s), `RETRY_ON_REFUSAL` (`on`: when the model refuses although the best reranker score is at least `RETRY_MIN_SCORE`, 1.0, ask once more with the next model, if `RETRY_MIN_SECONDS`, 15, of the budget remain), `ALLOWED_ORIGINS` (none: same-origin only). See `hosted/divrag/config.py`.
 
 ### Rebuilding the index
 

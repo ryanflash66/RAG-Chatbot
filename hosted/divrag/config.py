@@ -12,6 +12,7 @@ for the public demo.
     RERANK_CANDIDATES           vector hits handed to the reranker (default 20)
     TOP_K                       passages given to the model (default 5)
     MODEL_CACHE_DIR             fastembed model directory (see embedder.model_cache_dir)
+    ONNX_THREADS                onnxruntime threads per model (default: onnxruntime's own choice; see embedder.onnx_threads)
     INDEX_DIR                   directory with chunks.json and vectors.npy (default hosted/index)
     MAX_QUESTION_CHARS          default 500
     RATE_LIMIT_PER_MINUTE       questions per client IP per minute, per server instance (default 8)
@@ -89,6 +90,10 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
     retry_min_seconds = float(env.get("RETRY_MIN_SECONDS", "15"))
     if retry_min_seconds < 0:
         raise ValueError(f"RETRY_MIN_SECONDS must be 0 or more, got {retry_min_seconds}")
+    # Read by embedder.onnx_threads() when the models load; checked here so a bad value stops startup.
+    threads = env.get("ONNX_THREADS", "").strip()
+    if threads and not (threads.isdigit() and int(threads) >= 1):
+        raise ValueError(f"ONNX_THREADS must be a whole number of 1 or more, got {threads!r}")
     index_dir = Path(env.get("INDEX_DIR", "").strip() or HOSTED_DIR / "index")
     return Settings(
         openrouter_api_key=env.get("OPENROUTER_API_KEY", "").strip() or None,

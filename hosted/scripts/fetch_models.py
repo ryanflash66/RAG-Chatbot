@@ -3,7 +3,7 @@
 Vercel runs this as the Build Command (hosted/vercel.json), so the files land in
 hosted/models/ and ship inside the function bundle. embedder.model_cache_dir()
 finds that directory, and a cold start reads the models from disk instead of
-downloading about 160 MB from Hugging Face on the first question.
+downloading about 90 MB from Hugging Face on the first question.
 
 It uses the standard library only, so it runs on whichever Python the build
 image puts on PATH. It writes the Hugging Face cache layout that fastembed reads:
@@ -26,15 +26,15 @@ from typing import Callable, Dict, List, Optional
 
 HUB = "https://huggingface.co"
 
-# fastembed's Hugging Face source and model file for each model the demo uses
-# (divrag.embedder.MODEL_NAME and RERANK_MODEL_NAME), pinned to a commit so every
-# build ships the same files. tests/test_fetch_models.py checks these against
-# fastembed's own model list.
+# The Hugging Face source and model file for each model the demo uses
+# (divrag.embedder.MODEL_NAME, and RERANK_MODEL_NAME with RERANK_MODEL_FILE),
+# pinned to a commit so every build ships the same files.
+# tests/test_fetch_models.py checks these against divrag.embedder and fastembed.
 MODELS = (
     {"repo": "Qdrant/bge-small-en-v1.5-onnx-Q", "revision": "aa8f8b060edb00e03bfdd08813a2949946c8ba55",
      "model_file": "model_optimized.onnx"},
     {"repo": "Xenova/ms-marco-MiniLM-L-6-v2", "revision": "a09144355adeed5f58c8ed011d209bf8ee5a1fec",
-     "model_file": "onnx/model.onnx"},
+     "model_file": "onnx/model_quantized.onnx"},
 )
 
 # The tokenizer and config files fastembed asks the hub for, besides the model file.

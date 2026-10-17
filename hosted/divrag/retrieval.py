@@ -22,14 +22,14 @@ class Retriever:
         self.candidates = candidates
 
     def retrieve(self, question: str, division: Optional[str], k: int = 5,
-                 timer: Optional[StepTimer] = None) -> List[Hit]:
+                 timer: Optional[StepTimer] = None, candidates: Optional[int] = None) -> List[Hit]:
         """The k best chunks of `division` for the question (all divisions when None).
 
-        With a reranker, the top `candidates` vector hits are re-ordered by the
-        cross-encoder and their scores are the cross-encoder's. `timer` records
-        the embed, search and rerank steps.
+        With a reranker, the top `candidates` vector hits (default: the
+        retriever's) are re-ordered by the cross-encoder and their scores are
+        the cross-encoder's. `timer` records the embed, search and rerank steps.
         """
-        pool = max(k, self.candidates) if self.reranker else k
+        pool = max(k, candidates or self.candidates) if self.reranker else k
         with timed(timer, "embed"):
             vector = self.embedder.query(question)
         with timed(timer, "search"):
@@ -39,6 +39,17 @@ class Retriever:
                 scores = self.reranker.scores(question, [h.chunk["text"] for h in hits])
             hits = [Hit(s, h.chunk) for s, h in sorted(zip(scores, hits), key=lambda pair: -pair[0])]
         return hits[:k]
+
+    def warm_up(self) -> None:
+        """Load the models and run each once on a few words.
+
+        The first inference of an ONNX model is slow, so a cold instance runs one
+        before the first question. Short text is enough: reranking 20 real
+        passages here took about 4.6 s of a cold start on Vercel's CPU.
+        """
+        self.embedder.query("warm up")
+        if self.reranker:
+            self.reranker.scores("warm up", ["warm up"])
 
     def with_following(self, hits: List[Hit], top: int = 2) -> List[Hit]:
         """The hits, each of the first `top` followed by the next chunk of its document.

@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hosted"))
 
 from divrag import llm as llm_module  # noqa: E402
-from divrag.answer import NOT_FOUND, Answerer, attach_sources, build_messages, cited_numbers  # noqa: E402
+from divrag.answer import NOT_FOUND, SUGGEST_CANDIDATES, Answerer, attach_sources, build_messages, cited_numbers  # noqa: E402
 from divrag.config import load_settings  # noqa: E402
 from divrag.divisions import BY_ID  # noqa: E402
 from divrag.index_file import Hit  # noqa: E402
@@ -128,9 +128,11 @@ class _FakeRetriever:
         self.scores = scores
         self.reranker = object() if reranker else None
         self.searched = []
+        self.candidates = []
 
-    def retrieve(self, question, division, k=5, timer=None):
+    def retrieve(self, question, division, k=5, timer=None, candidates=None):
         self.searched.append(division)
+        self.candidates.append(candidates)
         source = TMP if division == "wztc" else UAM
         return [_hit(10, source=source, division=division, score=self.scores[division])]
 
@@ -179,6 +181,7 @@ def test_refusal_suggests_the_other_division_when_its_documents_look_relevant():
 
     assert result.refused
     assert result.suggest == ["wztc"]
+    assert retriever.candidates[-1] == SUGGEST_CANDIDATES  # a smaller rerank than the question's own
     assert "try asking Work Zone Traffic Control" in result.answer
     assert result.as_dict()["suggest"] == [{"id": "wztc", "name": "Work Zone Traffic Control"}]
 
@@ -217,9 +220,9 @@ def test_answer_times_the_model_call_citations_and_retry_and_names_both_models()
 
 def test_refusal_times_the_search_of_the_other_division_as_suggest():
     class _SlowRetriever(_FakeRetriever):
-        def retrieve(self, question, division, k=5, timer=None):
+        def retrieve(self, question, division, k=5, timer=None, candidates=None):
             time.sleep(0.03)
-            return super().retrieve(question, division, k, timer)
+            return super().retrieve(question, division, k, timer, candidates)
 
     timer = StepTimer()
     retriever = _SlowRetriever({"wztc": -9.0, "utilities": 0.5})
@@ -329,6 +332,13 @@ def test_settings_reject_paid_models():
     settings = load_settings({"OPENROUTER_MODEL": "a/b:free", "OPENROUTER_FALLBACK_MODELS": "c/d:free", "RERANK": "off"})
     assert settings.models == ("a/b:free", "c/d:free")
     assert settings.rerank is False
+
+
+@pytest.mark.parametrize("value", ["two", "0", "-1", "1.5"])
+def test_a_bad_onnx_threads_value_stops_startup(value):
+    with pytest.raises(ValueError):
+        load_settings({"ONNX_THREADS": value})
+    load_settings({"ONNX_THREADS": "2"})
 
 
 def test_request_budget_defaults_under_vercels_limit_and_rejects_values_above_it():

@@ -2,6 +2,7 @@
 
     GET  /                the page (public/index.html)
     GET  /api/divisions   divisions, their documents and example questions
+    POST /api/warm        load the models now, returning once they are ready
     POST /api/ask         {"question", "asker", "target"} -> answer with cited sources and timing_ms per step
     GET  /api/health      index and model settings (no secrets)
 
@@ -10,8 +11,12 @@ with hosted/ as the Root Directory). Locally:
 
     .venv/Scripts/python -m uvicorn index:app --app-dir hosted --env-file .env --port 8000
 
-Models load on the first question (or in the background when the page asks for
-/api/divisions), not at import, so a cold start can serve the page quickly.
+Models load when the page calls /api/warm (on load, and again when the visitor
+picks a division or starts typing) or on the first question, not at import, so a
+cold start can serve the page quickly. /api/warm holds its request open until the
+models are ready: a background thread started by a request that already returned
+can be frozen by Vercel, which left the Oct 16 first question 14 s of retrieval
+despite a warm-up.
 """
 
 import asyncio
@@ -29,7 +34,7 @@ from pydantic import BaseModel, Field
 from divrag.answer import Answerer
 from divrag.config import Settings, load_settings
 from divrag.divisions import BY_ID, DIVISIONS
-from divrag.embedder import Embedder, Reranker, model_cache_dir
+from divrag.embedder import Embedder, Reranker, cpu_info, model_cache_dir
 from divrag.index_file import IndexFile
 from divrag.llm import MISCONFIGURED, TOO_SLOW, LLMError, OpenRouterClient
 from divrag.retrieval import Retriever
@@ -69,7 +74,7 @@ class _Runtime:
                 embedder = Embedder(self.index.model, cache_dir=cache)
                 reranker = Reranker(cache_dir=cache) if self.settings.rerank else None
                 retriever = Retriever(self.index, embedder, reranker, candidates=self.settings.rerank_candidates)
-                retriever.retrieve("warm up", division=None, k=1)  # loads the models
+                retriever.warm_up()
                 log.info("models loaded from %s in %.1fs", cache, time.perf_counter() - started)
                 self._retriever = retriever
             return self._retriever
@@ -136,8 +141,6 @@ def page() -> FileResponse:
 
 @app.get("/api/divisions")
 def divisions() -> Dict:
-    # Start loading the models while the visitor reads the page and types.
-    threading.Thread(target=_warm, daemon=True).start()
     return {
         "divisions": [
             {
@@ -153,11 +156,16 @@ def divisions() -> Dict:
     }
 
 
-def _warm() -> None:
+@app.post("/api/warm")
+def warm():
+    """Load the models while the visitor picks divisions and types; instant once loaded."""
+    started = time.perf_counter()
     try:
         runtime.retriever()
     except Exception:  # noqa: BLE001 - the next question reports the real error
         log.exception("model warm-up failed")
+        return JSONResponse({"ready": False}, status_code=503)
+    return {"ready": True, "ms": _ms_since(started)}
 
 
 @app.get("/api/health")
@@ -172,6 +180,7 @@ def health() -> Dict:
         "rerank": settings.rerank,
         "llm_models": list(settings.models),
         "llm_configured": bool(settings.openrouter_api_key),
+        "cpus": cpu_info(),
     }
 
 
