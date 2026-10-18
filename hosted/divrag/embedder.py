@@ -30,6 +30,14 @@ MODEL_NAME = "BAAI/bge-small-en-v1.5"
 RERANK_MODEL_NAME = "Xenova/ms-marco-MiniLM-L-6-v2"
 RERANK_MODEL_FILE = "onnx/model_quantized.onnx"
 QUERY_INSTRUCTION = "Represent this question for searching relevant passages: "
+# Passages per cross-encoder call. One at a time: in a batch every passage is
+# padded to the longest one's length, so a short passage cost as much as a
+# 512-token one, and the int8 model quantizes each layer's input with one scale
+# for the whole batch, so a passage's score depended on its batch-mates. On the
+# 83 questions with known pages (python -m prototype.rerank_check), one passage
+# per call reranked 20 candidates in 187 ms against 419 ms as one batch, and kept
+# an expected page in the top 5 for 80 questions against 79.
+RERANK_BATCH_SIZE = 1
 
 # A deployment can ship the model files here (a fastembed cache directory).
 BUNDLED_MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -143,7 +151,7 @@ class Reranker:
     def scores(self, question: str, passages: List[str]) -> List[float]:
         if not passages:
             return []
-        return [float(s) for s in self._load().rerank(question, passages, batch_size=32)]
+        return [float(s) for s in self._load().rerank(question, passages, batch_size=RERANK_BATCH_SIZE)]
 
 
 def _unit(vectors: np.ndarray) -> np.ndarray:

@@ -45,7 +45,13 @@ class Retriever:
 
         The first inference of an ONNX model is slow, so a cold instance runs one
         before the first question. Short text is enough: reranking 20 real
-        passages here took about 4.6 s of a cold start on Vercel's CPU.
+        passages here took about 4.6 s of a cold start on Vercel's CPU. Two
+        full-length passages (the index's longest) added 0.5 s to the warm-up on
+        Vercel and changed nothing after it. With all 20 passages in one batch,
+        the first two questions still reranked about 0.6 s slower than later
+        ones either way; one passage per call (embedder.RERANK_BATCH_SIZE) left
+        the first questions 0.06 s slower than the same questions asked again,
+        after either warm-up.
         """
         self.embedder.query("warm up")
         if self.reranker:
