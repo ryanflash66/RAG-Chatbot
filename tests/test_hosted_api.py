@@ -5,6 +5,7 @@ import dataclasses
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -13,11 +14,13 @@ sys.path.insert(0, str(HOSTED))
 
 import index as hosted  # noqa: E402
 from divrag.answer import NOT_FOUND  # noqa: E402
-from divrag.index_file import Hit  # noqa: E402
+from divrag.divisions import Division, Document  # noqa: E402
+from divrag.index_file import Hit, IndexFile  # noqa: E402
 from divrag.llm import BUSY, TOO_SLOW, Completion, LLMError  # noqa: E402
 from divrag.timing import STEPS  # noqa: E402
 
 UAM = "20220713 NCDOT UAM Ver 2-0.pdf"
+TMP = "TMP Design Manual (Combined, No Links).pdf"
 SECRET = "sk-or-test-secret"
 
 
@@ -247,6 +250,65 @@ def test_divisions_name_each_documents_file_for_the_documents_filter(api):
     client, _, _ = api
     documents = {d["id"]: d["documents"] for d in client.get("/api/divisions").json()["divisions"]}
     assert documents["utilities"][0]["file"] == UAM
+
+
+def _small_index(counts):
+    """An index with counts[(division, source)] chunks of each document; search is never called."""
+    chunks = [{"text": "t", "source": source, "page": 1, "section": "", "division": division}
+              for (division, source), n in counts.items() for _ in range(n)]
+    return IndexFile("test-model", chunks, np.zeros((len(chunks), 4), dtype=np.float32))
+
+
+@pytest.fixture
+def small_index(monkeypatch):
+    index = _small_index({("utilities", UAM): 3, ("wztc", TMP): 2})
+    monkeypatch.setattr(hosted.runtime, "index", index)
+    return index
+
+
+def test_divisions_count_the_passages_of_each_document_and_division(api, small_index):
+    client, _, _ = api
+
+    divisions = {d["id"]: d for d in client.get("/api/divisions").json()["divisions"]}
+
+    assert divisions["utilities"]["passages"] == 3 and divisions["wztc"]["passages"] == 2
+    (uam,) = divisions["utilities"]["documents"]
+    assert uam["passages"] == 3 and uam["file"] == UAM and uam["title"] and uam["url"]
+    assert divisions["wztc"]["documents"][0]["passages"] == 2
+
+
+def test_every_listed_document_has_passages_in_the_committed_index(api):
+    # A document added to divisions.py without rerunning prototype.ingest would show "0 passages"
+    # and, ticked alone, make every question search nothing.
+    client, _, _ = api
+
+    for division in client.get("/api/divisions").json()["divisions"]:
+        assert all(doc["passages"] > 0 for doc in division["documents"]), division["id"]
+        assert division["passages"] == sum(doc["passages"] for doc in division["documents"]), division["id"]
+
+
+def test_every_reply_says_how_many_documents_and_passages_were_searched(api, small_index):
+    client, _, llm = api
+
+    answered = _ask(client).json()
+    ticked = client.post("/api/ask", json={"question": "When is a lane closure required?", "asker": "wztc",
+                                           "target": "utilities", "documents": [UAM, TMP]}).json()
+    llm.reply = NOT_FOUND
+    refused = _ask(client).json()
+
+    for data in (answered, ticked, refused):
+        assert data["searched"] == {"documents": 1, "passages": 3}  # never the asker's (wztc) 2 passages
+    assert refused["refused"] is True
+
+
+def test_searched_counts_only_the_ticked_documents(monkeypatch):
+    monkeypatch.setattr(hosted.runtime, "index", _small_index({("utilities", UAM): 3, ("utilities", "Permits.pdf"): 4,
+                                                               ("wztc", TMP): 2}))
+    division = Division("utilities", "Utilities", "NCDOT Utilities Unit",
+                        (Document(UAM, "UAM", "https://x/uam.pdf"), Document("Permits.pdf", "Permits", "https://x/p.pdf")))
+
+    assert hosted._searched(division, None) == {"documents": 2, "passages": 7}
+    assert hosted._searched(division, ["Permits.pdf"]) == {"documents": 1, "passages": 4}
 
 
 @pytest.mark.parametrize("path,kind", [("/css/base.css", "text/css"), ("/js/app.js", "javascript")])

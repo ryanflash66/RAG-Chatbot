@@ -24,7 +24,13 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request)
     }).then(function (res) {
-      return res.json().catch(function () { return { error: "The server returned an unexpected response (" + res.status + ")." }; });
+      var unexpected = "The server returned an unexpected response (" + res.status + ").";
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        // Our errors arrive as {error}; FastAPI's own validation errors (422) as {detail}.
+        // Anything that isn't an answer is an error, so the chat never waits on a broken reply.
+        if (data.error) return data;
+        return res.ok && typeof data.answer === "string" ? data : { error: unexpected };
+      });
     }).then(function (data) {
       if (data.error) handlers.onError(data.error);
       else handlers.onDone(data);
