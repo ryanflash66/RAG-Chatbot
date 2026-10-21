@@ -2,7 +2,10 @@
 
 import asyncio
 import dataclasses
+import json
+import re
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -39,6 +42,8 @@ class _FakeRetriever:
         if timer is not None:
             with timer.step("embed"):
                 pass
+            with timer.step("search"):
+                pass
         text = "Any work within 5 feet of the edge of any travel lane shall require a lane closure."
         return [Hit(2.0, {"text": text, "source": UAM, "page": 126, "division": division,
                           "section": "3.6.4.1 Lane and Road Closures"})]
@@ -51,15 +56,45 @@ class _FakeRetriever:
 
 
 class _FakeLLM:
+    """Replies with `reply` (a text or an exception); a list of replies is replayed one per call."""
+
     def __init__(self, reply):
         self.reply = reply
         self.messages = None
+        self.calls = 0
 
-    async def complete(self, messages):
+    def _next(self, messages):
         self.messages = messages
-        if isinstance(self.reply, Exception):
-            raise self.reply
-        return Completion(self.reply, "test/model:free")
+        self.calls += 1
+        reply = self.reply[min(self.calls, len(self.reply)) - 1] if isinstance(self.reply, list) else self.reply
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    async def complete(self, messages, models=None):
+        return Completion(self._next(messages), models[0] if models else "test/model:free")
+
+    def retry_models(self, used):
+        return ["test/second:free"]
+
+    def complete_stream(self, messages, models=None):
+        return _FakeStream(self, messages, models[0] if models else "test/model:free")
+
+
+class _FakeStream:
+    """The reply word by word, as OpenRouterClient.complete_stream hands it over."""
+
+    def __init__(self, llm, messages, model):
+        self._llm, self._messages, self.model, self.text = llm, messages, model, ""
+
+    def __aiter__(self):
+        return self._pieces()
+
+    async def _pieces(self):
+        reply = self._llm._next(self._messages)
+        for word in re.findall(r"\S+\s*", reply):
+            yield word
+        self.text = reply.strip()
 
 
 @pytest.fixture
@@ -343,3 +378,188 @@ def test_the_pages_stylesheets_and_scripts_are_served(api, path, kind):
     client, _, _ = api
     response = client.get(path)
     assert response.status_code == 200 and kind in response.headers["content-type"]
+
+
+# POST /api/ask/stream (DAR-629)
+
+def _stream(client, question="When is a lane closure required?", asker="wztc", target="utilities"):
+    return client.post("/api/ask/stream", json={"question": question, "asker": asker, "target": target})
+
+
+def _events(response):
+    """[(event, data)] of a server-sent event stream."""
+    events = []
+    for block in response.text.split("\n\n"):
+        if block.strip():
+            fields = dict(line.split(": ", 1) for line in block.split("\n"))
+            events.append((fields["event"], json.loads(fields["data"])))
+    return events
+
+
+def _order(events):
+    """The events as "read:start", "delta", "done", ..."""
+    return [f"{data['id']}:{data['status']}" if event == "step" else event for event, data in events]
+
+
+def test_a_streamed_answer_sends_the_steps_and_the_text_as_they_happen_then_the_same_answer_as_ask(api, caplog):
+    client, retriever, _ = api
+
+    with caplog.at_level("INFO", logger="hosted"):
+        response = _stream(client)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["cache-control"] == "no-cache" and response.headers["x-accel-buffering"] == "no"
+    events = _events(response)
+    order = _order(events)
+    written = order.index("write:done")
+    assert order[:5] == ["read:start", "read:done", "search:start", "search:done", "write:start"]
+    assert set(order[5:written]) == {"delta"} and written - 5 > 1  # the text in pieces, while it is written
+    assert order[written:] == ["write:done", "check:start", "check:done", "done"]
+    # The citation comes with the checked answer: the prompt's numbers are renumbered.
+    assert "".join(data["text"] for event, data in events if event == "delta") == (
+        "Within 5 feet of the travel lane on an undivided facility.")
+
+    labels = {data["id"]: data["label"] for event, data in events if event == "step"}
+    passages = hosted.runtime.index.count("utilities")
+    assert labels["read"] == "Reading your question" and labels["write"] == "Writing the answer"
+    assert labels["search"] == f"Searching Utilities documents ({passages:,} passages)"
+    assert labels["check"] == "Checking sources"
+
+    done = events[-1][1]
+    timing = done["timing_ms"]
+    step_ms = {data["id"]: data["ms"] for event, data in events if event == "step" and data["status"] == "done"}
+    assert step_ms["read"] == timing["model_load"] + timing["embed"] and step_ms["search"] == timing["search"]
+    assert step_ms["write"] == timing["llm"] and step_ms["check"] == timing["citations"]
+    assert done["steps"] == [{"id": data["id"], "label": data["label"], "ms": data["ms"]}
+                             for event, data in events if event == "step" and data["status"] == "done"]
+
+    asked = _ask(client).json()
+    assert [s["id"] for s in asked["steps"]] == [s["id"] for s in done["steps"]]  # the fallback shows the same steps
+    timed = ("timing_ms", "steps")  # the same keys and steps, but measured again
+    assert {k: v for k, v in done.items() if k not in timed} == {k: v for k, v in asked.items() if k not in timed}
+    assert list(done["timing_ms"]) == list(asked["timing_ms"])
+    assert done["refused"] is False and done["uncited"] is False and done["sources"][0]["page"] == 126
+    assert retriever.divisions == ["utilities", "utilities"]
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("ask ")]
+    assert len(lines) == 1 and "stream=True" in lines[0] and "uncited=False" in lines[0]
+    assert SECRET not in response.text
+
+
+def test_a_streamed_refusal_with_strong_retrieval_double_checks_and_replaces_the_text(api):
+    client, retriever, llm = api
+    retriever.reranker = object()  # scores are reranker scores, and 2.0 counts as strong retrieval
+    llm.reply = [NOT_FOUND, "Within 5 feet [1]."]
+
+    events = _events(_stream(client))
+
+    order = _order(events)
+    retry = order.index("retry:start")
+    assert order[:retry] == ["read:start", "read:done", "search:start", "search:done", "write:start", "write:done",
+                             "check:start", "check:done"]  # no delta: the refusal's marker is never shown
+    assert events[retry][1]["label"] == "Double-checking the source…"
+    assert events[retry + 1] == ("replace", {"text": ""})
+    assert set(order[retry + 2:-2]) == {"delta"} and order[-2:] == ["retry:done", "done"]
+    done = events[-1][1]
+    assert done["retried"] is True and done["refused"] is False and done["answer"] == "Within 5 feet [1]."
+    assert (done["first_model"], done["model"]) == ("test/model:free", "test/second:free")
+
+
+def test_a_streamed_refusal_refused_again_suggests_another_division(api):
+    client, retriever, llm = api
+    retriever.reranker = object()
+    llm.reply = NOT_FOUND
+
+    events = _events(_stream(client))
+
+    order = _order(events)
+    assert "delta" not in order
+    assert order[-6:] == ["retry:start", "replace", "retry:done", "suggest:start", "suggest:done", "done"]
+    done = events[-1][1]
+    assert done["refused"] is True and done["retried"] is True and done["sources"] == []
+    assert done["suggest"] == [{"id": "wztc", "name": "Work Zone Traffic Control"}]
+    assert [s["id"] for s in done["steps"]] == ["read", "search", "write", "check", "retry", "suggest"]
+    assert [s["id"] for s in _ask(client).json()["steps"]] == ["read", "search", "write", "check", "retry", "suggest"]
+
+
+def test_an_uncited_answer_is_kept_and_flagged_by_both_endpoints(api):
+    client, _, llm = api
+    llm.reply = "Within 5 feet of the travel lane."
+
+    streamed = _events(_stream(client))[-1]
+    asked = _ask(client).json()
+
+    assert streamed[0] == "done"
+    for data in (streamed[1], asked):
+        assert data["uncited"] is True and data["refused"] is False and data["sources"] == []
+        assert data["answer"] == "Within 5 feet of the travel lane."
+
+
+def test_half_of_a_character_split_across_two_events_does_not_break_the_stream(api):
+    client, _, llm = api
+    llm.reply = "Within 5 feet \ud83d [1]."  # the first half of an emoji's surrogate pair
+
+    events = _events(_stream(client))
+
+    assert events[-1][0] == "done" and events[-1][1]["answer"] == "Within 5 feet \ud83d [1]."
+
+
+def test_a_model_error_ends_the_stream_with_a_friendly_error_event(api):
+    client, _, llm = api
+    llm.reply = LLMError(BUSY, status=429, detail="upstream said no")
+
+    response = _stream(client)
+
+    events = _events(response)
+    assert events[-1] == ("error", {"error": BUSY, "status": 429})
+    assert "done" not in _order(events) and "upstream said no" not in response.text
+
+
+def test_a_streamed_answer_that_outlasts_the_time_budget_ends_with_an_error(api, monkeypatch):
+    client, _, llm = api
+
+    class _Never:
+        model, text = "test/model:free", ""
+
+        def __aiter__(self):
+            return self._pieces()
+
+        async def _pieces(self):
+            await asyncio.sleep(30)
+            yield "never"
+
+    llm.complete_stream = lambda messages, models=None: _Never()
+    monkeypatch.setattr(hosted, "MIN_ANSWER_SECONDS", 0.05)
+    monkeypatch.setattr(hosted, "settings", dataclasses.replace(hosted.settings, request_budget_seconds=0.0))
+
+    assert _events(_stream(client))[-1] == ("error", {"error": TOO_SLOW, "status": 504})
+
+
+def test_a_stream_still_ends_before_vercel_stops_the_function(api, monkeypatch):
+    client, _, _ = api
+
+    def slow_models(llm):
+        time.sleep(0.5)  # a cold start that eats the budget before the answer's own deadline starts
+        raise AssertionError("never reached: the stream stops first")
+
+    monkeypatch.setattr(hosted.runtime, "answerer", slow_models)
+    # The stream stops STREAM_MARGIN_SECONDS after the request budget: here 0.2 s after a budget of 0.
+    monkeypatch.setattr(hosted, "settings", dataclasses.replace(hosted.settings, request_budget_seconds=0.0))
+    monkeypatch.setattr(hosted, "STREAM_MARGIN_SECONDS", 0.2)
+
+    events = _events(_stream(client))
+
+    assert _order(events) == ["read:start", "error"]
+    assert events[-1][1] == {"error": TOO_SLOW, "status": 504}
+
+
+def test_stream_requests_get_the_same_checks_as_ask(api, monkeypatch):
+    client, retriever, _ = api
+
+    blank = _stream(client, question="  ")
+    assert blank.status_code == 400 and blank.json() == {"error": "Please type a question."}
+    monkeypatch.setattr(hosted, "limiter", hosted._RateLimiter(1))
+    assert _stream(client).status_code == 200
+    limited = _stream(client)
+    assert limited.status_code == 429 and "error" in limited.json()
+    assert retriever.divisions == ["utilities"]
