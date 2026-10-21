@@ -57,34 +57,58 @@
     return "Searches " + count(passages, "passage") + " in " + documentsText(picks.length, d.documents.length) + ".";
   }
 
-  function metaHtml(doc) {
-    var parts = [];
-    if (typeof doc.passages === "number") parts.push(R.escapeHtml(count(doc.passages, "passage")));
-    if (doc.url) parts.push('<a href="' + R.escapeHtml(doc.url) + '" target="_blank" rel="noopener">Open the PDF</a>');
-    return parts.length ? '<div class="doc-meta">' + parts.join(" · ") + "</div>" : "";
+  // Builds elements with DOM calls rather than HTML strings, so names, files and links
+  // from /api/divisions are only ever text and attribute values, never parsed as markup.
+  function h(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      if (k === "checked") node.checked = node.defaultChecked = !!attrs[k];
+      else if (attrs[k] !== null && attrs[k] !== undefined) node.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) {
+      if (c === null || c === undefined || c === "") return;
+      node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    });
+    return node;
   }
 
-  function activeHtml(d) {
+  function metaNode(doc) {
+    var parts = [];
+    if (typeof doc.passages === "number") parts.push(count(doc.passages, "passage"));
+    if (doc.url) parts.push(h("a", { href: doc.url, target: "_blank", rel: "noopener" }, ["Open the PDF"]));
+    if (!parts.length) return null;
+    var children = [];
+    parts.forEach(function (part, i) { if (i) children.push(" · "); children.push(part); });
+    return h("div", { "class": "doc-meta" }, children);
+  }
+
+  function activeNode(d) {
     // The group role sits on the section, not the list, so the <li>s stay a list for screen readers.
-    return '<section class="doc-group active" data-division="' + R.escapeHtml(d.id) + '" role="group" aria-labelledby="docs-asked">' +
-      '<h3 id="docs-asked"><span class="doc-state">Asking</span> ' + R.escapeHtml(d.name) + "</h3>" +
-      '<p class="doc-summary"></p>' +
-      '<ul class="doc-list">' + d.documents.map(function (doc) {
-        return '<li class="doc"><label class="doc-pick">' +
-          '<input type="checkbox" data-file="' + R.escapeHtml(doc.file) + '"' + (isTicked(d.id, doc.file) ? " checked" : "") + ">" +
-          '<span class="doc-title">' + R.escapeHtml(doc.title) + "</span></label>" + metaHtml(doc) + "</li>";
-      }).join("") + "</ul>" +
-      '<p class="hint" id="docs-hint"></p></section>';
+    return h("section", { "class": "doc-group active", "data-division": d.id, role: "group", "aria-labelledby": "docs-asked" }, [
+      h("h3", { id: "docs-asked" }, [h("span", { "class": "doc-state" }, ["Asking"]), " " + d.name]),
+      h("p", { "class": "doc-summary" }),
+      h("ul", { "class": "doc-list" }, d.documents.map(function (doc) {
+        return h("li", { "class": "doc" }, [
+          h("label", { "class": "doc-pick" }, [
+            h("input", { type: "checkbox", "data-file": doc.file, checked: isTicked(d.id, doc.file) }),
+            h("span", { "class": "doc-title" }, [doc.title])
+          ]),
+          metaNode(doc)
+        ]);
+      })),
+      h("p", { "class": "hint", id: "docs-hint" })
+    ]);
   }
 
   // "Not asked" rather than "Not searched": after a refusal the server does look through
   // the other divisions, but only to suggest asking one of them instead (answer.py).
-  function otherHtml(d) {
-    return '<section class="doc-group" data-division="' + R.escapeHtml(d.id) + '">' +
-      '<h3><span class="doc-state">Not asked</span> ' + R.escapeHtml(d.name) + "</h3>" +
-      '<ul class="doc-list">' + d.documents.map(function (doc) {
-        return '<li class="doc"><span class="doc-title">' + R.escapeHtml(doc.title) + "</span>" + metaHtml(doc) + "</li>";
-      }).join("") + "</ul></section>";
+  function otherNode(d) {
+    return h("section", { "class": "doc-group", "data-division": d.id }, [
+      h("h3", {}, [h("span", { "class": "doc-state" }, ["Not asked"]), " " + d.name]),
+      h("ul", { "class": "doc-list" }, d.documents.map(function (doc) {
+        return h("li", { "class": "doc" }, [h("span", { "class": "doc-title" }, [doc.title]), metaNode(doc)]);
+      }))
+    ]);
   }
 
   // Updates the asked division's group in place (not redrawn), so a keyboard user keeps focus on the checkbox.
@@ -114,8 +138,9 @@
 
   function draw() {
     var d = byId[targetId];
-    box.innerHTML = (d ? activeHtml(d) : "") +
-      divisions.filter(function (o) { return o !== d; }).map(otherHtml).join("");
+    var groups = (d ? [activeNode(d)] : []).concat(divisions.filter(function (o) { return o !== d; }).map(otherNode));
+    while (box.firstChild) box.removeChild(box.firstChild);
+    groups.forEach(function (g) { box.appendChild(g); });
     refresh();
   }
 
@@ -140,13 +165,13 @@
   // document database (DAR-621) lets the team add them.
   function addUploadButton() {
     if (!TEAM || document.getElementById("upload-docs")) return;
-    var tools = document.createElement("div");
-    tools.className = "doc-tools";
-    tools.innerHTML = '<button type="button" class="secondary" id="upload-docs" aria-expanded="false" aria-controls="upload-note">Upload documents</button>' +
-      '<span class="doc-state">Team only</span>' +
-      '<p class="hint" id="upload-note" hidden>Uploading comes with the document database (DAR-621). Nothing is uploaded from here yet.</p>';
+    var button = h("button", { type: "button", "class": "secondary", id: "upload-docs", "aria-expanded": "false", "aria-controls": "upload-note" },
+      ["Upload documents"]);
+    var note = h("p", { "class": "hint", id: "upload-note" },
+      ["Uploading comes with the document database (DAR-621). Nothing is uploaded from here yet."]);
+    note.hidden = true;
+    var tools = h("div", { "class": "doc-tools" }, [button, h("span", { "class": "doc-state" }, ["Team only"]), note]);
     box.parentNode.insertBefore(tools, box.nextSibling);
-    var button = tools.querySelector("button"), note = tools.querySelector(".hint");
     button.addEventListener("click", function () {
       note.hidden = !note.hidden;
       button.setAttribute("aria-expanded", String(!note.hidden));
