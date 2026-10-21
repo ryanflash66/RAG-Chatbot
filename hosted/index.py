@@ -281,6 +281,9 @@ def _ms_text(timing: Dict[str, int]) -> str:
 
 
 # Keep this last: routes registered after a mount at "/" would never be reached.
-# Locally it serves public/css and public/js beside the page; on Vercel the CDN
-# serves public/ before a request reaches this function.
-app.mount("/", StaticFiles(directory=PUBLIC_DIR, html=True), name="public")
+# Locally it serves public/css and public/js beside the page. On Vercel the CDN
+# serves public/ and leaves it out of the function bundle, so the mount is skipped
+# there: StaticFiles raises at import for a missing directory, which took down every
+# /api route on the first preview of this layout.
+if PUBLIC_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=PUBLIC_DIR, html=True), name="public")
