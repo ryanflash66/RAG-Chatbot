@@ -1,9 +1,42 @@
 /* Left panel: division pickers and the documents each division owns (DAR-620). */
 .pickers { display: grid; gap: 4px; margin-bottom: 16px; }
 .pickers select { margin-bottom: 8px; }
-.doc-group { margin-bottom: 14px; }
-.doc-group h3 { font-size: .9rem; margin: 0 0 4px; color: var(--muted); }
+
+/* One box per division; the asked division's box comes first and is tinted. */
+.doc-group { margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.doc-group.active { border-color: var(--accent); background: var(--accent-soft); }
+.doc-group h3 { font-size: .9rem; margin: 0; color: var(--muted); }
 .doc-group.active h3 { color: var(--text); }
-.doc-group ul { list-style: none; padding: 0; margin: 0; }
-.doc-group li { font-size: .9rem; padding: 4px 0; }
-.doc-group a { color: var(--accent); }
+.doc-state {
+  display: inline-block; vertical-align: 1px; margin-right: 2px; font-size: 11px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
+}
+.doc-group.active .doc-state { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.doc-summary { font-size: .85rem; color: var(--muted); margin: 2px 0 0; }
+.doc-summary:empty { display: none; }
+.doc-list { list-style: none; padding: 0; margin: 6px 0 0; }
+.doc { padding: 6px 0; font-size: .9rem; }
+.doc + .doc { border-top: 1px solid var(--border); }
+.doc-title { font-weight: 600; }
+/* The whole row toggles the checkbox, and is at least 44 px tall for a finger. */
+.doc-pick {
+  display: flex; align-items: flex-start; gap: 10px; min-height: 44px; margin: 0;
+  font-size: .9rem; cursor: pointer;
+}
+.doc-pick input { width: 20px; height: 20px; margin: 1px 0 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+/* The last ticked document can't be unticked (docs.js keeps it ticked and says why). */
+.doc-pick input[aria-disabled="true"] { opacity: .65; cursor: not-allowed; }
+.doc-pick:has(input[aria-disabled="true"]) { cursor: not-allowed; }
+.doc-meta { font-size: .85rem; color: var(--muted); }
+.doc-pick + .doc-meta { padding-left: 30px; }
+.doc-meta a { color: var(--accent); }
+.doc-group .hint { margin-top: 6px; }
+.doc-group .hint.warn { color: var(--text); font-weight: 600; }
+
+.doc-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.doc-tools .hint { flex-basis: 100%; margin: 0; }
+
+/* "Searched N passages in M documents" under each answer (built by App.docs.searchedHtml).
+   .answer .searched outranks the chat panel's .answer p margins. */
+.searched, .answer .searched { font-size: .8rem; color: var(--muted); margin: 8px 0 0; }

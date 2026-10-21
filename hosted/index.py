@@ -1,10 +1,11 @@
 """The hosted demo: one FastAPI app that serves the page and answers questions.
 
     GET  /                the page (public/index.html; public/css and public/js beside it)
-    GET  /api/divisions   divisions, their documents and example questions
+    GET  /api/divisions   divisions, their documents (with passage counts) and example questions
     POST /api/warm        load the models now, returning once they are ready
     POST /api/ask         {"question", "asker", "target", "history"?, "documents"?}
-                          -> answer with cited sources and timing_ms per step
+                          -> answer with cited sources, timing_ms per step and
+                             searched {documents, passages}
     GET  /api/health      index and model settings (no secrets)
 
 Vercel loads `app` from this file (a FastAPI entrypoint at the project root,
@@ -180,6 +181,17 @@ def _make_llm() -> OpenRouterClient:
     return OpenRouterClient(settings.openrouter_api_key or "", settings.models, settings.temperature, settings.reasoning)
 
 
+def _searched(target: Division, documents: Optional[List[str]]) -> Dict[str, int]:
+    """What a question to `target` looked through, for the page's "Searched N passages in M documents".
+
+    The vector search scores every passage the division and document filters
+    let through, so the count of those rows is the number searched, not the
+    handful that reached the reranker. `documents` None means all of the target's.
+    """
+    searched = len(documents) if documents is not None else len(target.documents)
+    return {"documents": searched, "passages": runtime.index.count(target.id, documents)}
+
+
 @app.get("/", include_in_schema=False)
 def page() -> FileResponse:
     return FileResponse(PUBLIC_DIR / "index.html", media_type="text/html")
@@ -187,13 +199,18 @@ def page() -> FileResponse:
 
 @app.get("/api/divisions")
 def divisions() -> Dict:
+    # passages: how many chunks a search of that document, or of the whole division, looks through.
+    # They come from the index loaded at import, so listing them never waits for the models.
+    count = runtime.index.count
     return {
         "divisions": [
             {
                 "id": d.id,
                 "name": d.name,
                 "unit": d.unit,
-                "documents": [{"file": doc.file, "title": doc.title, "url": doc.url} for doc in d.documents],
+                "passages": count(d.id),
+                "documents": [{"file": doc.file, "title": doc.title, "url": doc.url, "passages": count(d.id, [doc.file])}
+                              for doc in d.documents],
                 "examples": list(d.examples),
             }
             for d in DIVISIONS
@@ -268,6 +285,7 @@ async def ask(body: AskRequest, request: Request):
     payload["asker"] = {"id": asker.id, "name": asker.name}
     payload["target"] = {"id": target.id, "name": target.name}
     payload["timing_ms"] = timing
+    payload["searched"] = _searched(target, checked.documents)
     return payload
 
 
