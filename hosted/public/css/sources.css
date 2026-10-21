@@ -1,8 +1,66 @@
 /* Right panel: the passages the active answer cites (DAR-627). */
+.src-for { margin: 0 0 12px; font-size: .9rem; color: var(--muted); }
+.src-q {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+  margin-top: 2px; color: var(--text); font-weight: 600;
+}
 ol.sources { list-style: none; padding: 0; margin: 0; }
-ol.sources li { border-top: 1px solid var(--border); padding: 10px 0; }
-ol.sources li:first-child { border-top: 0; padding-top: 0; }
-.src-n { font-weight: 700; color: var(--accent); margin-right: 4px; }
-.src-title { font-weight: 600; }
-.src-meta { font-size: .9rem; color: var(--muted); }
-.src-link { display: inline-block; margin-top: 4px; font-size: .9rem; color: var(--accent); }
+/* The negative margin gives the highlight room around the text without moving it.
+   position: relative keeps the screen-reader-only text inside the scrolling panel; placed
+   against the page instead, it made the whole page as tall as the list of passages. */
+.src {
+  position: relative; margin: 0 -10px; padding: 12px 10px; border-top: 1px solid var(--border); border-radius: 6px;
+}
+.src:first-child { border-top: 0; padding-top: 4px; }
+.src-head { display: flex; align-items: baseline; gap: 8px; }
+.src-n {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.7em; height: 1.7em; padding: 0 4px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); font-size: .8rem; font-weight: 700;
+}
+.src.current .src-n { background: var(--accent); color: var(--accent-text); }
+.src-title { font-weight: 600; line-height: 1.35; }
+.src-meta { font-size: .85rem; color: var(--muted); margin: 2px 0 0; }
+.src-text {
+  margin: 8px 0 0; padding: 8px 10px; border-left: 3px solid var(--border); border-radius: 0 4px 4px 0;
+  background: var(--bg); font-size: .9rem; line-height: 1.45;
+}
+.src-text p { margin: 0; }
+.src-text .clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
+.src-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 16px; margin-top: 6px; }
+.src-more {
+  background: none; border: 0; padding: 4px 0; color: var(--accent);
+  font-size: .85rem; font-weight: 600; cursor: pointer;
+}
+.src-link { padding: 4px 0; font-size: .9rem; color: var(--accent); }
+.src-note { margin: 14px 0 0; font-size: .8rem; color: var(--muted); }
+.src-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* A clicked citation flashes its passage. Under reduced motion the passage is tinted
+   for the same time instead of fading. */
+@keyframes src-flash {
+  0%, 35% { background-color: rgba(240, 180, 41, .32); }
+  100% { background-color: transparent; }
+}
+.src.flash { animation: src-flash 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .src.flash { animation: none; background-color: rgba(240, 180, 41, .22); }
+}
+
+/* In the thread: the answer whose sources the panel shows gets a bar on its left, inside
+   the card's padding. Citations are links styled in chat.css; on touch screens their
+   padding widens the tap target without changing the line height, and the negative
+   margin keeps the text around them where it was (no gap before a following period). */
+[data-answer-id] { position: relative; }
+[data-answer-id].sources-shown::before {
+  content: ""; position: absolute; left: -10px; top: 2px; bottom: 2px; width: 3px;
+  border-radius: 2px; background: var(--accent);
+}
+.cite:hover { text-decoration: underline; }
+@media (pointer: coarse) {
+  .cite { padding: 6px 4px; margin: 0 -3px; }
+  .src-more, .src-link { display: inline-flex; align-items: center; min-height: 44px; }
+}
