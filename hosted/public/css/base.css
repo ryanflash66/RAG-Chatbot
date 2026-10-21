@@ -79,11 +79,12 @@ h1 { font-size: 1.15rem; line-height: 1.25; margin: 0; white-space: nowrap; over
   .panel-chat { padding: 16px; }
   .panel-docs, .panel-sources {
     position: fixed; top: 0; bottom: 0; z-index: 40; width: min(86vw, 360px);
-    transition: transform .2s ease; visibility: hidden;
+    /* visibility waits for the slide to finish, so a closing drawer slides out instead of vanishing. */
+    transition: transform .2s ease, visibility 0s linear .2s; visibility: hidden;
   }
   .panel-docs { left: 0; transform: translateX(-100%); }
   .panel-sources { right: 0; transform: translateX(100%); }
-  .panel-docs.open, .panel-sources.open { transform: none; visibility: visible; }
+  .panel-docs.open, .panel-sources.open { transform: none; visibility: visible; transition: transform .2s ease, visibility 0s; }
   .drawer-toggle {
     display: inline-block; flex: none; background: transparent; color: var(--accent);
     border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; min-height: 40px; cursor: pointer;

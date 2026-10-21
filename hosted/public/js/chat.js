@@ -166,7 +166,8 @@
       answerEl.innerHTML = R.answer(data.answer, data.sources.length);
       App.sources.show(data.sources, answerId);
     }
-    answerEl.insertAdjacentHTML("beforeend", App.docs.searchedHtml(data));
+    var searched = App.docs.searchedNode(data);
+    if (searched) answerEl.appendChild(searched);
     steps.finish(data);
   }
 

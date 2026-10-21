@@ -37,6 +37,6 @@
 .doc-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 .doc-tools .hint { flex-basis: 100%; margin: 0; }
 
-/* "Searched N passages in M documents" under each answer (built by App.docs.searchedHtml).
+/* "Searched N passages in M documents" under each answer (built by App.docs.searchedNode).
    .answer .searched outranks the chat panel's .answer p margins. */
 .searched, .answer .searched { font-size: .8rem; color: var(--muted); margin: 8px 0 0; }

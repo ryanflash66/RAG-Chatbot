@@ -69,6 +69,10 @@
     return o;
   }
 
+  // Until App.chat.init() runs (after /api/divisions), a press of Ask would submit the form the
+  // browser's way and reload the page with the question in the address bar.
+  el("ask-form").addEventListener("submit", function (e) { e.preventDefault(); });
+
   App.sources.init();
   App.api.divisions().then(function (data) {
     App.state.divisions = data.divisions;

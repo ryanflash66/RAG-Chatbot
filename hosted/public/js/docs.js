@@ -3,7 +3,7 @@
 // which of them the next question searches; the other divisions' documents are
 // listed read-only, because answers come only from the asked division's documents.
 // Nothing can be added or deleted here. selected(targetId) returns the ticked
-// files, or null when all are ticked; searchedHtml(payload) is the "Searched N
+// files, or null when all are ticked; searchedNode(payload) is the "Searched N
 // passages in M documents" line under each answer.
 (function () {
   "use strict";
@@ -202,20 +202,19 @@
     return picks.length === d.documents.length ? null : picks.map(function (doc) { return doc.file; });
   }
 
-  // payload is the JSON POST api/ask returns; "" when it has no searched counts.
-  function searchedHtml(payload) {
+  // payload is the JSON POST api/ask returns; null when it has no searched counts.
+  function searchedNode(payload) {
     var s = payload && payload.searched;
-    if (!s || typeof s.passages !== "number" || typeof s.documents !== "number") return "";
+    if (!s || typeof s.passages !== "number" || typeof s.documents !== "number") return null;
     var d = payload.target && byId[payload.target.id];
     var total = d ? d.documents.length : s.documents;
-    return '<p class="searched">' +
-      R.escapeHtml("Searched " + count(s.passages, "passage") + " in " + documentsText(s.documents, total) + ".") + "</p>";
+    return h("p", { "class": "searched" }, ["Searched " + count(s.passages, "passage") + " in " + documentsText(s.documents, total) + "."]);
   }
 
   App.docs = {
     render: render,
     setTarget: setTarget,
     selected: selected,
-    searchedHtml: searchedHtml
+    searchedNode: searchedNode
   };
 })();
