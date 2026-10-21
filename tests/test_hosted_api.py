@@ -27,10 +27,12 @@ class _FakeRetriever:
     def __init__(self):
         self.divisions = []
         self.sources = []
+        self.questions = []
 
     def retrieve(self, question, division, k=5, timer=None, candidates=None, sources=None):
         self.divisions.append(division)
         self.sources.append(sources)
+        self.questions.append(question)
         if timer is not None:
             with timer.step("embed"):
                 pass
@@ -241,6 +243,31 @@ def test_only_the_targets_ticked_documents_are_searched_and_history_is_accepted(
     assert retriever.sources == [[UAM]]  # the other division's manual is dropped, duplicates too
     _ask(client)
     assert retriever.sources[-1] is None  # no list: every document of the target
+
+
+def test_a_follow_ups_history_reaches_the_search_and_the_prompt(api):
+    client, retriever, llm = api
+    history = [{"question": f"Earlier question {n}?", "answer": f"Earlier answer {n} [1]."} for n in range(1, 6)]
+    body = {"question": "And within 5 feet of the lane?", "asker": "wztc", "target": "utilities", "history": history}
+
+    response = client.post("/api/ask", json=body)
+
+    assert response.status_code == 200 and response.json()["refused"] is False
+    assert retriever.questions == ["Earlier question 5? And within 5 feet of the lane?"]
+    user = llm.messages[1]["content"]
+    # Five turns arrived; only the last three are used.
+    assert [n for n in range(1, 6) if f"Earlier question {n}?" in user] == [3, 4, 5]
+    assert "Earlier answer 5." in user and user.rstrip().endswith("Question: And within 5 feet of the lane?")
+    assert "8. The earlier conversation" in llm.messages[0]["content"]
+
+
+def test_a_question_without_history_is_searched_as_asked(api):
+    client, retriever, llm = api
+
+    _ask(client, "When is a lane closure required?")
+
+    assert retriever.questions == ["When is a lane closure required?"]
+    assert "Earlier" not in llm.messages[1]["content"]
 
 
 def test_divisions_name_each_documents_file_for_the_documents_filter(api):
