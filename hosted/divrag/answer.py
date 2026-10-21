@@ -8,13 +8,22 @@ The flow for one question:
    mention (one source per document page), with document title, PDF page,
    section and a link to the public PDF at that page.
 
-When the model says the passages don't answer the question, or its answer
-cites none of them, the reply is a refusal that names the division's documents
-and shows no sources; if another division's documents look relevant, it
-suggests asking that division instead.
+When the model says the passages don't answer the question, the reply is a
+refusal that names the division's documents and shows no sources; if another
+division's documents look relevant, it suggests asking that division instead.
+An answer that cites none of the passages is kept and marked `uncited`, so the
+page can flag it ("No source cited") instead of hiding it (DAR-629).
+
+answer() waits for the model's whole reply; answer_stream() passes the text on
+as it is written. Both grade, retry and refuse the same way.
 
 The asker's own division only shapes the wording (who the answer is for); its
 documents are never searched.
+
+A follow-up question comes with the conversation so far (the page keeps it):
+the search runs on the previous question plus the follow-up, and the prompt
+shows the last turns only to explain what the question refers to. Facts and
+citations still come from the new passages alone.
 """
 
 import asyncio
@@ -22,13 +31,18 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .divisions import BY_ID, DIVISIONS, Division, document_for
 from .index_file import Hit
 from .llm import Completion, LLMError, OpenRouterClient
 from .retrieval import Retriever
 from .timing import StepTimer, timed
+
+# emit(event, data): one server-sent event of a streamed answer ("step", "delta", "replace").
+Emit = Callable[[str, Dict[str, Any]], None]
+# One model call: (messages, models) -> the reply; models None means the configured list.
+_Call = Callable[..., Awaitable[Completion]]
 
 NOT_FOUND = "NOT_IN_DOCUMENTS"
 # Cross-encoder (ms-marco MiniLM) score above which another division's best
@@ -51,6 +65,19 @@ RETRY_MARGIN_SECONDS = 1.0
 EXCERPT_CHARS = 700
 # The best hits also bring the next chunk of their document (see Retriever.with_following).
 FOLLOWING_FOR_TOP = 2
+# Follow-ups (DAR-619) are understood without an extra model call: the search
+# runs on the previous question plus the follow-up, and the prompt carries the
+# last few turns. The page sends at most this many already; the server keeps
+# only these too, whatever arrives. Earlier answers are clipped because they
+# only say what "it" or "that" refers to; the facts come from the new passages.
+HISTORY_TURNS = 3
+HISTORY_ANSWER_CHARS = 1500
+# The previous question is clipped so a long one can't push the follow-up past
+# the 512 tokens bge-small and the reranker read: the follow-up comes after it in
+# the search text. 500 characters plus a follow-up of at most MAX_QUESTION_CHARS
+# (500 by default) is about 250 tokens of English; a forged 5,000-character
+# history question would otherwise fill the window on its own.
+HISTORY_QUESTION_CHARS = 500
 
 SYSTEM_PROMPT = """You answer questions for North Carolina Department of Transportation (NCDOT) staff.
 You are answering on behalf of the {target_name} division ({target_unit}), using only numbered passages from its documents.
@@ -65,11 +92,22 @@ Rules:
 6. Start with the direct answer. Keep it short: one to four sentences, or a short list when there are several requirements. Use plain language.
 7. Don't mention "passages" or "context"; refer to the document by name if needed."""
 
-USER_PROMPT = """Passages from the {target_name} division's documents:
+# Added to the rules only when the question comes with earlier turns, so a first
+# question gets exactly the prompt the known-page checks were run with.
+HISTORY_RULE = """
+8. The earlier conversation, when shown, is only there to understand what the question refers to (for example "it" or "that barrier"). It is not a source: take every fact from the numbered passages and cite them, never from the earlier answers. If the passages do not answer the question, reply with exactly {not_found}, even if the earlier conversation did."""
+
+USER_PROMPT = """{history}Passages from the {target_name} division's documents:
 
 {context}
 
 Question: {question}"""
+
+HISTORY_PROMPT = """Earlier conversation, oldest first (only to understand what the question refers to; not a source):
+
+{turns}
+
+"""
 
 # One bracketed citation: "[1]", "[1, 2]", "[1; 2]", "[1-3]", "[1–3]", and the
 # lenticular/full-width brackets some models use: "【2】", "［2］".
@@ -106,11 +144,13 @@ class Answer:
     suggest: List[str] = field(default_factory=list)  # division ids worth asking instead
     retried: bool = False  # a refusal was followed by a second model call
     first_model: Optional[str] = None  # the model that answered the first call (differs from `model` after a retry)
+    uncited: bool = False  # an answer (not a refusal) that cites none of the passages
 
     def as_dict(self) -> Dict:
         return {
             "answer": self.answer,
             "refused": self.refused,
+            "uncited": self.uncited,
             "sources": [s.as_dict() for s in self.sources],
             "model": self.model,
             "first_model": self.first_model,
@@ -136,7 +176,50 @@ def _pages(chunk: Dict) -> str:
     return f"PDF page {chunk['page']}"
 
 
-def build_messages(question: str, asker: Division, target: Division, hits: List[Hit]) -> List[Dict[str, str]]:
+def recent_turns(history: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
+    """The last HISTORY_TURNS turns of the conversation, oldest first."""
+    return list(history)[-HISTORY_TURNS:]
+
+
+def _clip(text: str, limit: int) -> str:
+    """The text in at most `limit` characters (plus " …" when cut), never an empty prefix.
+
+    It is cut after the last whole word when one ends near the limit; text with
+    no space there (a pasted URL or part number) is cut at the limit itself.
+    """
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > limit * 0.8 else cut) + " …"
+
+
+def _history_text(history: Sequence[Dict[str, str]]) -> str:
+    """The earlier turns for the user message; empty when there are none.
+
+    Their [n] markers are removed: they numbered the earlier answer's passages,
+    and left in they would read as citations of this question's passages. A turn
+    with an empty answer is a question asked of another division, which the page
+    sends when one of its "Ask … instead" buttons is used; only its question is shown.
+    """
+    turns = []
+    for turn in recent_turns(history):
+        text = f"Earlier question: {_clip(turn.get('question') or '', HISTORY_QUESTION_CHARS)}"
+        answer = _CITATION.sub("", _EMPTY_CITATION.sub("", turn.get("answer") or ""))
+        answer = _clip(re.sub(r"[ \t]+([.,;:])", r"\1", answer), HISTORY_ANSWER_CHARS)
+        turns.append(f"{text}\nEarlier answer: {answer}" if answer else text)
+    return HISTORY_PROMPT.format(turns="\n\n".join(turns)) if turns else ""
+
+
+def build_messages(question: str, asker: Division, target: Division, hits: List[Hit],
+                   history: Sequence[Dict[str, str]] = ()) -> List[Dict[str, str]]:
+    """The system and user messages for one question.
+
+    `history` is the conversation so far ([{"question", "answer"}], oldest
+    first). Its last HISTORY_TURNS turns go before the passages, with a rule
+    that they only explain what the question refers to.
+    """
     if asker.id == target.id:
         asker_line = f"The person asking also works in {target.name}."
     else:
@@ -144,11 +227,14 @@ def build_messages(question: str, asker: Division, target: Division, hits: List[
             f"The person asking works in a different division, {asker.name} ({asker.unit}), and may not know "
             f"{target.name}'s terms; explain them briefly only where the passages do."
         )
+    earlier = _history_text(history)
     system = SYSTEM_PROMPT.format(
         target_name=target.name, target_unit=target.unit, asker_line=asker_line, not_found=NOT_FOUND
     )
+    if earlier:
+        system += HISTORY_RULE.format(not_found=NOT_FOUND)
     context = "\n\n---\n\n".join(f"[{n}] ({_locator(hit)})\n{hit.chunk['text']}" for n, hit in enumerate(hits, 1))
-    user = USER_PROMPT.format(target_name=target.name, context=context, question=question)
+    user = USER_PROMPT.format(history=earlier, target_name=target.name, context=context, question=question)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
@@ -288,10 +374,151 @@ log = logging.getLogger(__name__)
 
 
 def _grade(raw: str, hits: List[Hit]) -> Tuple[str, List[Source]]:
-    """The answer text and its sources; no sources means the reply is a refusal."""
-    if raw.lstrip().startswith(NOT_FOUND):
+    """The answer text and its sources.
+
+    Empty text means the model said the documents don't answer the question.
+    Text without sources is an answer that cites none of the passages: it is
+    kept and flagged, not turned into a refusal (DAR-629). A reply that uses
+    NOT_FOUND inside a sentence and cites nothing ("I'm sorry, NOT_IN_DOCUMENTS")
+    is a refusal worded around the marker, not an answer.
+    """
+    if _lead(raw).startswith(NOT_FOUND):
         return "", []
-    return attach_sources(raw.replace(NOT_FOUND, ""), hits)
+    text, sources = attach_sources(raw.replace(NOT_FOUND, ""), hits)
+    if NOT_FOUND in raw and not sources:
+        return "", []
+    return text, sources
+
+
+def _lead(text: str) -> str:
+    """The text without leading whitespace and Markdown emphasis, where a reply that refuses starts with NOT_FOUND."""
+    return text.lstrip(" \t\r\n*_`")
+
+
+def _marker_start(text: str) -> int:
+    """How many characters at the end of `text` could be the beginning of NOT_FOUND."""
+    for size in range(min(len(NOT_FOUND) - 1, len(text)), 0, -1):
+        if text.endswith(NOT_FOUND[:size]):
+            return size
+    return 0
+
+
+# A complete citation marker in streamed text, with the spaces before it ("feet [3]." shows as "feet.").
+_STREAMED_CITATION = re.compile(r"[ \t]*[\[【［]\s*(?:\d+(?:\s*[,;\-–]\s*\d+)*|none|n/?a)\s*[\]】］]", re.IGNORECASE)
+# What the end of streamed text holds back: trailing spaces, and a bracket not yet closed
+# that may be the start of a citation (short, as markers are).
+_OPEN_TAIL = re.compile(r"[ \t]*(?:[\[【［][^\]】］\n]{0,20})?$")
+
+
+class _VisibleText:
+    """Which part of a reply that is still being written can be shown yet.
+
+    The start is held back until it can't be NOT_FOUND, so a refusal's marker
+    never flashes on the page, and a reply that starts with it shows nothing
+    (_grade makes it a refusal). Further in, the marker is cut out as _grade
+    cuts it, holding back a tail that could be its beginning.
+
+    Citation markers are left out too: they carry the prompt's passage
+    numbers, which the citation check renumbers ([4] may become [1]), so the
+    answer's citations appear only with the checked answer.
+    """
+
+    def __init__(self) -> None:
+        self._held = ""
+        self._flowing = False  # the start is not the marker: text is shown as it comes
+        self.refusal = False
+
+    def feed(self, piece: str) -> str:
+        """The new text to show after `piece` (often "")."""
+        if self.refusal:
+            return ""
+        self._held += piece
+        if not self._flowing:
+            head = _lead(self._held)
+            if head.startswith(NOT_FOUND):
+                self.refusal, self._held = True, ""
+                return ""
+            if NOT_FOUND.startswith(head):  # "", "**" or e.g. "NOT_IN": could still become the marker
+                return ""
+            # Leading whitespace goes, as the final answer is stripped; emphasis stays.
+            self._flowing, self._held = True, self._held.lstrip()
+        text = _STREAMED_CITATION.sub("", self._held.replace(NOT_FOUND, ""))
+        tail = _OPEN_TAIL.search(text)
+        cut = min(tail.start() if tail else len(text), len(text) - _marker_start(text))
+        self._held = text[cut:]
+        return text[:cut]
+
+    def end(self) -> str:
+        """The text still held back once the reply is complete."""
+        if self.refusal or not self._flowing:
+            rest = "" if self.refusal else self._held.strip()
+        else:
+            rest = self._held.rstrip()
+        self._held = ""
+        return _STREAMED_CITATION.sub("", rest.replace(NOT_FOUND, ""))
+
+
+# The steps the page shows while it answers (DAR-629), in order, with the
+# StepTimer steps each is made of. "read" includes loading the models on a cold
+# instance, so that wait shows as the first step instead of a pause before it.
+LIVE_STEPS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("read", ("model_load", "embed")),
+    ("search", ("search",)),
+    ("rerank", ("rerank",)),
+    ("write", ("llm",)),
+    ("check", ("citations",)),
+    ("retry", ("retry",)),
+    ("suggest", ("suggest",)),
+)
+
+
+def live_step_labels(target: Division, passages: int, top_k: int) -> Dict[str, str]:
+    """What the page calls each live step; `passages` is how many the search looks through."""
+    return {
+        "read": "Reading your question",
+        "search": f"Searching {target.name} documents ({passages:,} passages)",
+        "rerank": f"Picking the {top_k} best passages",
+        "write": "Writing the answer",
+        "check": "Checking sources",
+        "retry": "Double-checking the source…",
+        "suggest": "Checking whether another division covers it",
+    }
+
+
+class LiveSteps:
+    """A StepTimer listener that turns the timer's steps into the steps the page shows.
+
+    A live step starts with the first of its timer steps and is done after the
+    last one, with their times added, so its ms are the ones in timing_ms.
+    `done` lists the finished ones, [{"id", "label", "ms"}], for the answer's
+    payload; with `emit`, each start and finish is also sent as it happens:
+    emit("step", {"id", "label", "status": "start" | "done", "ms"}).
+    """
+
+    def __init__(self, labels: Dict[str, str], emit: Optional[Emit] = None):
+        self._labels = labels
+        self._emit = emit
+        self._live = {part: live for live, parts in LIVE_STEPS for part in parts}
+        self._last = {live: parts[-1] for live, parts in LIVE_STEPS}
+        self._running: Dict[str, int] = {}
+        self.done: List[Dict[str, Any]] = []
+
+    def __call__(self, step: str, status: str, ms: int) -> None:
+        live = self._live[step]
+        if status == "start":
+            if live not in self._running:
+                self._running[live] = 0
+                self._send(live, "start", 0)
+            return
+        self._running[live] = self._running.get(live, 0) + ms
+        if step == self._last[live]:
+            ms = self._running.pop(live)
+            self.done.append({"id": live, "label": self._labels[live], "ms": ms})
+            self._send(live, "done", ms)
+
+    def _send(self, live: str, status: str, ms: int) -> None:
+        if self._emit:
+            self._emit("step", {"id": live, "label": self._labels[live], "status": status, "ms": ms})
 
 
 class Answerer:
@@ -303,8 +530,26 @@ class Answerer:
         self.retry_min_score = retry_min_score  # None: never retry
         self.retry_min_seconds = retry_min_seconds
 
-    def retrieve(self, question: str, target: Division, timer: Optional[StepTimer] = None) -> List[Hit]:
-        hits = self.retriever.retrieve(question, division=target.id, k=self.top_k, timer=timer)
+    def search_query(self, question: str, history: Sequence[Dict[str, str]] = ()) -> str:
+        """The text to search with: the previous question plus this one when there is history.
+
+        A follow-up such as "What if it is more than 6 feet from the edge?" says
+        nothing about bridge-deck barrier on its own, so searched alone it finds
+        other 6-foot rules. Prefixing only the latest question keeps the topic
+        without letting older turns outweigh the new question. No model call
+        rewrites the question, which keeps follow-ups as fast as first questions.
+        The previous question is clipped to HISTORY_QUESTION_CHARS so the
+        follow-up after it always stays inside the models' 512-token window.
+        """
+        turns = recent_turns(history)
+        previous = _clip(turns[-1].get("question") or "", HISTORY_QUESTION_CHARS) if turns else ""
+        return f"{previous} {question}" if previous else question
+
+    def retrieve(self, question: str, target: Division, timer: Optional[StepTimer] = None,
+                 documents: Optional[Sequence[str]] = None, history: Sequence[Dict[str, str]] = ()) -> List[Hit]:
+        """The passages for the question from `target`'s documents (only `documents` when given)."""
+        hits = self.retriever.retrieve(self.search_query(question, history), division=target.id, k=self.top_k,
+                                       timer=timer, sources=documents)
         return self.retriever.as_passages(self.retriever.with_following(hits, top=FOLLOWING_FOR_TOP))
 
     def suggest_divisions(self, question: str, target: Division) -> List[str]:
@@ -333,46 +578,99 @@ class Answerer:
         return left >= self.retry_min_seconds and left > RETRY_MARGIN_SECONDS
 
     async def _retry(self, messages: List[Dict[str, str]], first: Completion, hits: List[Hit],
-                     deadline: Optional[float]) -> Optional[Tuple[Completion, str, List[Source]]]:
-        """Ask once more with the next model; the new answer if it is cited, else None."""
+                     deadline: Optional[float], call: _Call) -> Optional[Tuple[Completion, str, List[Source]]]:
+        """Ask once more with the next model; the new answer if it is cited, else None.
+
+        An uncited answer is kept when it is the first reply, but not in place
+        of a refusal: one model saying the documents don't cover it and the
+        next answering without pointing to a passage is the case most likely
+        to come from outside the documents.
+        """
         models = self.llm.retry_models(first.model)
         log.info("refusal despite strong retrieval (top score %.2f): retrying %s with %s",
                  max(hit.score for hit in hits), first.model, models[0])
         timeout = None if deadline is None else deadline - time.monotonic() - RETRY_MARGIN_SECONDS
         try:
-            second = await asyncio.wait_for(self.llm.complete(messages, models=models), timeout=timeout)
+            second = await asyncio.wait_for(call(messages, models=models), timeout=timeout)
         except (LLMError, asyncio.TimeoutError) as exc:
             log.warning("retry failed (%s); keeping the refusal", exc.__class__.__name__)
             return None
         text, sources = _grade(second.text, hits)
-        log.info("retry by %s: %s", second.model, "cited answer" if sources else "refused again")
+        log.info("retry by %s: %s", second.model,
+                 "cited answer" if sources else "uncited answer, keeping the refusal" if text else "refused again")
         return (second, text, sources) if sources else None
 
     async def answer(self, question: str, asker: Division, target: Division, hits: List[Hit],
-                     deadline: Optional[float] = None, timer: Optional[StepTimer] = None) -> Answer:
+                     deadline: Optional[float] = None, timer: Optional[StepTimer] = None,
+                     history: Sequence[Dict[str, str]] = ()) -> Answer:
         """Answer from the hits.
 
         `deadline` is a time.monotonic() value that bounds the optional retry;
-        `timer` records the llm, citations, retry and suggest steps.
+        `timer` records the llm, citations, retry and suggest steps; `history`
+        is the conversation so far (see build_messages).
         """
+        return await self._answer(question, asker, target, hits, deadline, timer, history, self.llm.complete)
+
+    async def answer_stream(self, question: str, asker: Division, target: Division, hits: List[Hit], emit: Emit,
+                            deadline: Optional[float] = None, timer: Optional[StepTimer] = None,
+                            history: Sequence[Dict[str, str]] = ()) -> Answer:
+        """answer(), passing the model's text on while it is written.
+
+        emit("delta", {"text"}) gets each new piece of text to show, and
+        emit("replace", {"text": ""}) clears it when the retry starts over. The
+        returned Answer is the one answer() would give: its text is graded and
+        renumbered, so it replaces the streamed text once it is complete.
+        """
+        calls = 0
+
+        async def call(messages: List[Dict[str, str]], models: Optional[Sequence[str]] = None) -> Completion:
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                emit("replace", {"text": ""})
+            return await self._streamed(messages, models, emit)
+
+        return await self._answer(question, asker, target, hits, deadline, timer, history, call)
+
+    async def _streamed(self, messages: List[Dict[str, str]], models: Optional[Sequence[str]], emit: Emit) -> Completion:
+        """One streamed model call, its visible text emitted as "delta" events."""
+        visible = _VisibleText()
+        stream = self.llm.complete_stream(messages, models=models)
+        async for piece in stream:
+            text = visible.feed(piece)
+            if text:
+                emit("delta", {"text": text})
+        rest = visible.end()
+        if rest:
+            emit("delta", {"text": rest})
+        return Completion(stream.text, stream.model)
+
+    async def _answer(self, question: str, asker: Division, target: Division, hits: List[Hit],
+                      deadline: Optional[float], timer: Optional[StepTimer], history: Sequence[Dict[str, str]],
+                      call: _Call) -> Answer:
+        """The answer, with `call` asking the model (complete(), or a streamed call)."""
         if not hits:
             return Answer(refusal_text(target, []), refused=True)
-        messages = build_messages(question, asker, target, hits)
+        messages = build_messages(question, asker, target, hits, history)
         with timed(timer, "llm"):
-            completion = await self.llm.complete(messages)
+            completion = await call(messages)
         first_model = completion.model
         with timed(timer, "citations"):
             text, sources = _grade(completion.text, hits)
         retried = False
-        if not sources and self._worth_retrying(hits, deadline):
+        # Only a "not found" is retried: it is short, so the retry costs little
+        # before the visitor sees an answer, while a written-out uncited answer is kept.
+        if not text and self._worth_retrying(hits, deadline):
             retried = True
             with timed(timer, "retry"):
-                second = await self._retry(messages, completion, hits, deadline)
+                second = await self._retry(messages, completion, hits, deadline, call)
             if second:
                 completion, text, sources = second
-        if not sources:
+        if not text:
             with timed(timer, "suggest"):
-                suggest = await asyncio.to_thread(self.suggest_divisions, question, target)
+                # The same text the question was searched with, so a refused follow-up is matched on its topic.
+                suggest = await asyncio.to_thread(self.suggest_divisions, self.search_query(question, history), target)
             return Answer(refusal_text(target, suggest), refused=True, model=completion.model, suggest=suggest,
                           retried=retried, first_model=first_model)
-        return Answer(text, refused=False, sources=sources, model=completion.model, retried=retried, first_model=first_model)
+        return Answer(text, refused=False, sources=sources, model=completion.model, retried=retried,
+                      first_model=first_model, uncited=not sources)

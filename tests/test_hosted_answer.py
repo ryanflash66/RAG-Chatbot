@@ -12,11 +12,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hosted"))
 
 from divrag import llm as llm_module  # noqa: E402
-from divrag.answer import NOT_FOUND, SUGGEST_CANDIDATES, Answerer, attach_sources, build_messages, cited_numbers  # noqa: E402
+from divrag.answer import (  # noqa: E402
+    HISTORY_ANSWER_CHARS, HISTORY_QUESTION_CHARS, HISTORY_TURNS, NOT_FOUND, SUGGEST_CANDIDATES, Answerer, LiveSteps,
+    _VisibleText, attach_sources, build_messages, cited_numbers, live_step_labels,
+)
 from divrag.config import load_settings  # noqa: E402
 from divrag.divisions import BY_ID  # noqa: E402
 from divrag.index_file import Hit  # noqa: E402
-from divrag.llm import BUSY, DAILY_LIMIT, UNAVAILABLE, Completion, LLMError, OpenRouterClient  # noqa: E402
+from divrag.llm import (  # noqa: E402
+    BUSY, DAILY_LIMIT, MISCONFIGURED, TOO_LONG, UNAVAILABLE, Completion, LLMError, OpenRouterClient,
+)
 from divrag.timing import StepTimer  # noqa: E402
 
 UAM = "20220713 NCDOT UAM Ver 2-0.pdf"
@@ -101,6 +106,98 @@ def test_prompt_frames_the_asker_but_contains_only_the_targets_passages():
     assert "When is a lane closure needed?" in user["content"]
 
 
+BRIDGE = "When must portable concrete barrier on a bridge deck be anchored?"
+FOLLOW_UP = "What if it is more than 6 feet from the edge?"
+
+
+def _turn(question, answer="An answer [1]."):
+    return {"question": question, "answer": answer}
+
+
+def test_search_query_is_the_question_alone_without_history():
+    assert Answerer(None, None).search_query(BRIDGE) == BRIDGE
+    assert Answerer(None, None).search_query(BRIDGE, []) == BRIDGE
+
+
+def test_a_follow_up_is_searched_with_only_the_previous_question_before_it():
+    history = [_turn("Who pays for a detour?"), _turn(BRIDGE)]
+
+    query = Answerer(None, None).search_query(FOLLOW_UP, history)
+
+    assert query == f"{BRIDGE} {FOLLOW_UP}"
+    assert "detour" not in query  # older turns don't steer the search
+
+
+def test_a_long_previous_question_is_clipped_so_the_follow_up_still_gets_read():
+    query = Answerer(None, None).search_query(FOLLOW_UP, [_turn("barrier " * 400)])
+    assert query.endswith(FOLLOW_UP) and len(query) < 600
+
+
+def test_a_long_previous_question_without_spaces_is_cut_at_the_limit_not_dropped():
+    # A pasted URL or part number has no word boundary to cut at; the prefix is kept, cut hard.
+    query = Answerer(None, None).search_query(FOLLOW_UP, [_turn("x" * 5000)])
+    assert query == "x" * HISTORY_QUESTION_CHARS + " … " + FOLLOW_UP
+
+
+def test_a_long_earlier_answer_without_spaces_is_cut_at_the_limit_not_dropped():
+    _, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["wztc"], [_hit(40, source=TMP, division="wztc")],
+                             [_turn(BRIDGE, "y" * 3000)])
+    assert "Earlier answer: " + "y" * HISTORY_ANSWER_CHARS + " …\n" in user["content"]
+
+
+def test_prompt_shows_the_earlier_turns_before_the_passages_with_a_passages_only_rule():
+    hits = [_hit(40, "Anchor the barrier when it is within 6 feet of the deck edge.", source=TMP, division="wztc")]
+    history = [_turn(BRIDGE, "When it is within 6 feet of the deck edge [1]. It must be pinned [2][3].")]
+
+    system, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["wztc"], hits, history)
+
+    content = user["content"]
+    assert content.index("Earlier conversation") < content.index("Earlier question: " + BRIDGE) < content.index("[1] (")
+    assert "Earlier answer: When it is within 6 feet of the deck edge. It must be pinned." in content
+    assert content.rstrip().endswith("Question: " + FOLLOW_UP)
+    # The old answer's [n] numbered other passages; only the new passages are numbered.
+    assert content.count("[1]") == 1 and "[2]" not in content
+    # Every existing rule stays, plus one saying the earlier turns are not a source.
+    assert "1. Use only the numbered passages." in system["content"]
+    assert f"reply with exactly {NOT_FOUND} and nothing else" in system["content"]
+    assert "8. The earlier conversation" in system["content"]
+    assert "It is not a source: take every fact from the numbered passages" in system["content"]
+    assert f"reply with exactly {NOT_FOUND}, even if the earlier conversation did" in system["content"]
+
+
+def test_a_question_carried_over_from_another_division_is_shown_without_an_answer():
+    # "Ask Utilities instead" on a refused follow-up sends the previous question with no answer.
+    hits = [_hit(126, "Lane closure within 5 feet.")]
+
+    _, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["utilities"], hits, [_turn(BRIDGE, "")])
+
+    assert "Earlier question: " + BRIDGE in user["content"]
+    assert "Earlier answer" not in user["content"]
+    assert Answerer(None, None).search_query(FOLLOW_UP, [_turn(BRIDGE, "")]) == f"{BRIDGE} {FOLLOW_UP}"
+
+
+def test_a_first_question_gets_the_prompt_without_any_history_part():
+    hits = [_hit(126, "Lane closure within 5 feet.")]
+
+    system, user = build_messages("When is a lane closure needed?", BY_ID["wztc"], BY_ID["utilities"], hits, [])
+
+    assert "earlier conversation" not in system["content"].lower()
+    assert user["content"].startswith("Passages from the Utilities division's documents:")
+
+
+def test_only_the_last_three_turns_reach_the_prompt_and_long_answers_are_clipped():
+    history = [_turn(f"Question number {n}?", f"Answer number {n} [1].") for n in range(1, 7)]
+    history[-1]["answer"] = "word " * 1000
+
+    _, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["wztc"], [_hit(40, source=TMP, division="wztc")], history)
+
+    content = user["content"]
+    assert HISTORY_TURNS == 3
+    assert [n for n in range(1, 7) if f"Question number {n}?" in content] == [4, 5, 6]
+    last_answer = content.split("Earlier answer: ")[-1].split("\n\n")[0]
+    assert len(last_answer) <= HISTORY_ANSWER_CHARS + 2 and last_answer.endswith(" …")
+
+
 class _FakeLLM:
     """Replies with `text`; a list of texts is replayed one per call (the last repeats)."""
 
@@ -120,6 +217,29 @@ class _FakeLLM:
             raise text
         return Completion(text, "test/model:free" if models is None else models[0])
 
+    def complete_stream(self, messages, models=None):
+        self.calls.append(messages)
+        self.models_used.append(models)
+        return _FakeStream(self.texts[min(len(self.calls), len(self.texts)) - 1],
+                           "test/model:free" if models is None else models[0])
+
+
+class _FakeStream:
+    """A streamed reply in pieces of four characters; an exception reply is raised while iterating."""
+
+    def __init__(self, reply, model):
+        self.reply, self.model, self.text = reply, model, ""
+
+    def __aiter__(self):
+        return self._pieces()
+
+    async def _pieces(self):
+        if isinstance(self.reply, Exception):
+            raise self.reply
+        for start in range(0, len(self.reply), 4):
+            yield self.reply[start:start + 4]
+        self.text = self.reply.strip()
+
 
 class _FakeRetriever:
     """Returns a fixed best score per division; records which divisions were searched."""
@@ -129,12 +249,20 @@ class _FakeRetriever:
         self.reranker = object() if reranker else None
         self.searched = []
         self.candidates = []
+        self.questions = []
 
-    def retrieve(self, question, division, k=5, timer=None, candidates=None):
+    def retrieve(self, question, division, k=5, timer=None, candidates=None, sources=None):
         self.searched.append(division)
         self.candidates.append(candidates)
+        self.questions.append(question)
         source = TMP if division == "wztc" else UAM
         return [_hit(10, source=source, division=division, score=self.scores[division])]
+
+    def with_following(self, hits, top=2):
+        return hits
+
+    def as_passages(self, hits):
+        return hits
 
 
 def _answer(llm_text, scores=None, target="utilities"):
@@ -170,10 +298,29 @@ def test_not_in_documents_reply_is_a_refusal_with_no_sources():
     assert result.suggest == []  # the other division's best passage scored too low
 
 
-def test_answer_without_any_citation_is_treated_as_a_refusal():
-    result, _ = _answer("The rate is $50 per hour.")
-    assert result.refused and result.sources == []
-    assert "$50" not in result.answer
+def test_answer_without_any_citation_is_kept_and_flagged_uncited():
+    # DAR-629: shown with a "No source cited" flag instead of being turned into a refusal.
+    result, retriever = _answer("The rate is $50 per hour.")
+
+    assert not result.refused and result.uncited
+    assert result.answer == "The rate is $50 per hour." and result.sources == []
+    assert result.as_dict()["uncited"] is True
+    assert retriever.searched == ["utilities"]  # not a refusal, so no search for another division
+
+
+def test_a_cited_answer_is_not_flagged_uncited():
+    result, _ = _answer("Three feet [1].")
+    assert result.as_dict()["uncited"] is False
+
+
+def test_a_refusal_worded_around_the_marker_is_still_a_refusal():
+    result, _ = _answer(f"I'm sorry, {NOT_FOUND}.")
+    assert result.refused and not result.uncited and result.sources == []
+
+
+def test_the_marker_inside_a_cited_answer_is_cut_out():
+    result, _ = _answer(f"Three feet [1]. {NOT_FOUND}")
+    assert not result.refused and result.answer == "Three feet [1]."
 
 
 def test_refusal_suggests_the_other_division_when_its_documents_look_relevant():
@@ -186,7 +333,7 @@ def test_refusal_suggests_the_other_division_when_its_documents_look_relevant():
     assert result.as_dict()["suggest"] == [{"id": "wztc", "name": "Work Zone Traffic Control"}]
 
 
-@pytest.mark.parametrize("first", [NOT_FOUND, "The rate is three feet."])
+@pytest.mark.parametrize("first", [NOT_FOUND, f"Sorry, {NOT_FOUND}."])
 def test_refusal_despite_strong_retrieval_is_retried_once_with_the_next_model(first):
     result, llm = _ask_with_retry([first, "Three feet [1]."], score=3.5, seconds_left=40)
 
@@ -195,6 +342,40 @@ def test_refusal_despite_strong_retrieval_is_retried_once_with_the_next_model(fi
     assert result.model == "test/second:free"
     assert llm.models_used == [None, ["test/second:free"]]
     assert llm.calls[0] == llm.calls[1]  # same prompt, different model
+
+
+def test_a_follow_up_is_retrieved_answered_retried_and_suggested_with_its_history():
+    retriever = _FakeRetriever({"wztc": -9.0, "utilities": 3.5})
+    llm = _FakeLLM([NOT_FOUND, NOT_FOUND])
+    answerer = Answerer(retriever, llm)
+    history = [_turn("Who pays for a detour?"), _turn(BRIDGE, "Within 6 feet of the edge [1].")]
+
+    hits = answerer.retrieve(FOLLOW_UP, BY_ID["utilities"], history=history)
+    result = asyncio.run(answerer.answer(FOLLOW_UP, BY_ID["utilities"], BY_ID["utilities"], hits, time.monotonic() + 40,
+                                         history=history))
+
+    assert retriever.questions[0] == f"{BRIDGE} {FOLLOW_UP}"
+    assert result.refused and result.retried
+    assert len(llm.calls) == 2 and llm.calls[0] == llm.calls[1]  # the retry reuses the prompt, history included
+    assert "Earlier question: " + BRIDGE in llm.calls[1][1]["content"]
+    assert retriever.questions[1:] == [f"{BRIDGE} {FOLLOW_UP}"]  # the other division is checked on the same topic
+
+
+def test_an_uncited_answer_is_kept_not_retried():
+    # Only a "not found" is retried (DAR-629); before, an uncited answer counted as one.
+    result, llm = _ask_with_retry(["The rate is three feet.", "Three feet [1]."], score=3.5, seconds_left=40)
+
+    assert not result.refused and not result.retried and result.uncited
+    assert result.answer == "The rate is three feet."
+    assert len(llm.calls) == 1
+
+
+def test_an_uncited_answer_from_the_retry_does_not_replace_the_refusal():
+    # One model found nothing and the next answers without a citation: most likely outside knowledge.
+    result, _ = _ask_with_retry([NOT_FOUND, "Three feet."], score=3.5, seconds_left=40)
+
+    assert result.refused and result.retried and not result.uncited
+    assert "Utilities documents" in result.answer
 
 
 class _SlowLLM(_FakeLLM):
@@ -220,9 +401,9 @@ def test_answer_times_the_model_call_citations_and_retry_and_names_both_models()
 
 def test_refusal_times_the_search_of_the_other_division_as_suggest():
     class _SlowRetriever(_FakeRetriever):
-        def retrieve(self, question, division, k=5, timer=None, candidates=None):
+        def retrieve(self, question, division, k=5, timer=None, candidates=None, sources=None):
             time.sleep(0.03)
-            return super().retrieve(question, division, k, timer, candidates)
+            return super().retrieve(question, division, k, timer, candidates, sources)
 
     timer = StepTimer()
     retriever = _SlowRetriever({"wztc": -9.0, "utilities": 0.5})
@@ -449,3 +630,222 @@ def test_network_failure_becomes_a_friendly_error_without_details():
         asyncio.run(_client(handler).complete([]))
     assert caught.value.user_message == llm_module.UNAVAILABLE
     assert "boom" not in caught.value.user_message
+
+
+# Streaming (DAR-629): OpenRouter's server-sent events, the text shown while it
+# is written, and the steps the page shows.
+
+def _sse(*events):
+    """An OpenRouter stream body: one "data:" event each (dicts as JSON, strings as they are)."""
+    return "".join(f"data: {e if isinstance(e, str) else json.dumps(e)}\n\n" for e in events)
+
+
+def _chunk(text, model="c/d:free", finish=None):
+    return {"model": model, "choices": [{"index": 0, "delta": {"content": text}, "finish_reason": finish}]}
+
+
+def _read_stream(handler, pieces=None):
+    """(pieces, stream) after reading a whole streamed answer; raises what the stream raises.
+
+    Pass `pieces` to see what arrived before an error.
+    """
+    pieces = [] if pieces is None else pieces
+
+    async def run():
+        stream = _client(handler).complete_stream([{"role": "user", "content": "hi"}])
+        async for piece in stream:
+            pieces.append(piece)
+        return stream
+
+    return pieces, asyncio.run(run())
+
+
+def test_complete_stream_yields_the_text_as_it_arrives_and_names_the_answering_model():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        body = (": OPENROUTER PROCESSING\n\n"
+                + _sse(_chunk("Three"), {"model": "c/d:free", "choices": [{"delta": {"content": "", "reasoning": "hmm"}}]},
+                       _chunk(" feet"), _chunk(" [1]. ", finish="stop"), {"choices": [], "usage": {"total_tokens": 9}},
+                       "[DONE]", _chunk("after the end")))
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    pieces, stream = _read_stream(handler)
+
+    assert pieces == ["Three", " feet", " [1]. "]  # the reasoning is never passed on
+    assert (stream.text, stream.model) == ("Three feet [1].", "c/d:free")
+    assert seen["body"]["stream"] is True and seen["body"]["models"] == ["a/b:free", "c/d:free"]
+    assert seen["body"]["provider"] == {"max_price": {"prompt": 0, "completion": 0}}
+
+
+def test_complete_stream_reads_an_event_whose_data_spans_lines():
+    body = 'data: {"model": "a/b:free",\ndata: "choices": [{"delta": {"content": "Hi [1]"}}]}\n\ndata: [DONE]\n\n'
+    pieces, stream = _read_stream(lambda request: httpx.Response(200, text=body))
+    assert pieces == ["Hi [1]"] and stream.model == "a/b:free"
+
+
+@pytest.mark.parametrize("error,message", [
+    ({"code": 502, "message": "Provider disconnected"}, UNAVAILABLE),
+    ({"code": 429, "message": "Rate limit exceeded"}, BUSY),
+])
+def test_an_error_in_the_middle_of_the_stream_becomes_a_friendly_error(error, message):
+    body = _sse(_chunk("Three"), {"error": error, "choices": [{"delta": {"content": ""}, "finish_reason": "error"}]})
+    pieces = []
+
+    with pytest.raises(LLMError) as caught:
+        _read_stream(lambda request: httpx.Response(200, text=body), pieces)
+
+    assert caught.value.user_message == message
+    assert pieces == ["Three"]  # the text before the error had already been passed on
+
+
+@pytest.mark.parametrize("response,message,status", [
+    (httpx.Response(429, json={"error": {"code": 429, "message": "Rate limit exceeded: free-models-per-day"}}), DAILY_LIMIT, 429),
+    (httpx.Response(429, json={"error": {"code": 429, "message": "Rate limit exceeded"}}), BUSY, 429),
+    (httpx.Response(401, json={"error": {"message": "No auth credentials found"}}), MISCONFIGURED, 503),
+    (httpx.Response(502, text="<html>Bad gateway</html>"), UNAVAILABLE, 503),
+])
+def test_stream_http_errors_become_the_same_friendly_errors_as_complete(response, message, status):
+    with pytest.raises(LLMError) as caught:
+        _read_stream(lambda request: response)
+    assert (caught.value.user_message, caught.value.status) == (message, status)
+
+
+@pytest.mark.parametrize("body,message", [
+    (_sse(_chunk("We need to", finish="length"), "[DONE]"), TOO_LONG),
+    (_sse("[DONE]"), UNAVAILABLE),
+    (_sse("not json"), UNAVAILABLE),
+    # Closed mid-answer, without [DONE] or a finish reason: not a complete answer.
+    (_sse(_chunk("The NC-PCB is 10 ft "), _chunk("long and")), UNAVAILABLE),
+])
+def test_cut_off_empty_or_garbled_streams_are_errors(body, message):
+    with pytest.raises(LLMError) as caught:
+        _read_stream(lambda request: httpx.Response(200, text=body))
+    assert caught.value.user_message == message
+
+
+def test_a_dropped_stream_connection_is_a_friendly_error_without_details():
+    def handler(request):
+        raise httpx.ReadError("connection reset by peer")
+
+    with pytest.raises(LLMError) as caught:
+        _read_stream(handler)
+    assert caught.value.user_message == UNAVAILABLE and "reset" not in caught.value.user_message
+
+
+@pytest.mark.parametrize("pieces,shown", [
+    (["NOT_", "IN_DOC", "UMENTS"], ""),
+    (["\n NOT_IN_DOCUMENTS", ". The manual doesn't say."], ""),  # a refusal shows nothing
+    (["**NOT_IN_", "DOCUMENTS**"], ""),
+    (["NO", " fee applies."], "NO fee applies."),  # held while it could be the marker
+    (["Three feet [1]. NOT_IN", "_DOCUMENTS"], "Three feet. "),
+    (["  ", "\n", "Three"], "Three"),
+    (["NOT_IN"], "NOT_IN"),  # never became the marker
+])
+def test_the_streamed_text_never_shows_the_not_found_marker(pieces, shown):
+    visible = _VisibleText()
+    assert "".join(visible.feed(piece) for piece in pieces) + visible.end() == shown
+
+
+@pytest.mark.parametrize("pieces,shown", [
+    (["Three feet [", "1", "] and two [2-3]."], "Three feet and two."),
+    (["Shift traffic [1, ", "2]【3】 [none]."], "Shift traffic."),
+    (["**Three** feet [1]"], "**Three** feet"),
+    (["See [Table 4", "] on page 9."], "See [Table 4] on page 9."),  # not a citation
+])
+def test_the_streamed_text_leaves_out_citation_markers_until_they_are_checked(pieces, shown):
+    # The prompt's [4] may become [1] after the check; the checked answer brings the citations.
+    visible = _VisibleText()
+    assert "".join(visible.feed(piece) for piece in pieces) + visible.end() == shown
+
+
+def test_the_streamed_text_holds_back_only_what_could_start_a_marker():
+    visible = _VisibleText()
+    assert visible.feed("Three feet, see N") == "Three feet, see "
+    assert visible.feed("ote 4 ") == "Note 4"
+    assert visible.feed("[") == ""
+    assert visible.feed("2] here") == " here"
+
+
+def test_step_timer_tells_its_listener_when_each_step_starts_and_ends():
+    heard = []
+    timer = StepTimer(lambda *event: heard.append(event))
+
+    with timer.step("embed"):
+        time.sleep(0.01)
+    with pytest.raises(RuntimeError):
+        with timer.step("llm"):
+            raise RuntimeError("model call failed")
+
+    assert heard[0] == ("embed", "start", 0)
+    assert heard[1][:2] == ("embed", "done") and heard[1][2] == timer.as_ms()["embed"] >= 5
+    assert heard[2:] == [("llm", "start", 0)]  # a failed step is never reported done
+
+
+def test_live_steps_count_loading_the_models_as_reading_the_question():
+    sent = []
+    steps = LiveSteps(live_step_labels(BY_ID["utilities"], 1234, 5), lambda event, data: sent.append((event, data)))
+
+    for event in [("model_load", "start", 0), ("model_load", "done", 30), ("embed", "start", 0), ("embed", "done", 12),
+                  ("search", "start", 0), ("search", "done", 3), ("rerank", "start", 0), ("rerank", "done", 180)]:
+        steps(*event)
+
+    assert {event for event, _ in sent} == {"step"}
+    assert [(d["id"], d["status"], d["ms"]) for _, d in sent] == [
+        ("read", "start", 0), ("read", "done", 42), ("search", "start", 0), ("search", "done", 3),
+        ("rerank", "start", 0), ("rerank", "done", 180),
+    ]
+    assert sent[0][1]["label"] == "Reading your question"
+    assert sent[2][1]["label"] == "Searching Utilities documents (1,234 passages)"
+    assert sent[4][1]["label"] == "Picking the 5 best passages"
+    assert steps.done == [{"id": "read", "label": "Reading your question", "ms": 42},
+                          {"id": "search", "label": "Searching Utilities documents (1,234 passages)", "ms": 3},
+                          {"id": "rerank", "label": "Picking the 5 best passages", "ms": 180}]
+
+
+def test_live_steps_without_a_stream_only_record_the_finished_steps():
+    steps = LiveSteps(live_step_labels(BY_ID["wztc"], 10, 5))
+    steps("llm", "start", 0)
+    steps("llm", "done", 900)
+    assert steps.done == [{"id": "write", "label": "Writing the answer", "ms": 900}]
+
+
+def _stream_answer(replies, score=-9.0, seconds_left=40):
+    """Stream a Utilities answer; returns (result, events, llm)."""
+    retriever = _FakeRetriever({"wztc": -9.0, "utilities": score})
+    llm = _FakeLLM(replies)
+    events = []
+    hits = retriever.retrieve("q", "utilities")
+    result = asyncio.run(Answerer(retriever, llm).answer_stream(
+        "q", BY_ID["wztc"], BY_ID["utilities"], hits, lambda event, data: events.append((event, data)),
+        time.monotonic() + seconds_left))
+    return result, events, llm
+
+
+def test_a_streamed_answer_passes_the_text_on_in_pieces_and_returns_the_graded_answer():
+    result, events, _ = _stream_answer("  Three feet [1].")
+
+    assert {event for event, _ in events} == {"delta"} and len(events) > 1
+    assert "".join(data["text"] for _, data in events) == "Three feet."  # the citation comes with the answer
+    assert result.answer == "Three feet [1]." and len(result.sources) == 1 and not result.uncited
+
+
+def test_a_streamed_refusal_shows_no_text():
+    result, events, _ = _stream_answer(NOT_FOUND)
+    assert events == [] and result.refused
+
+
+def test_a_streamed_retry_clears_the_text_and_streams_the_next_model():
+    result, events, llm = _stream_answer([NOT_FOUND, "Three feet [1]."], score=3.5)
+
+    assert events[0] == ("replace", {"text": ""})
+    assert "".join(data["text"] for _, data in events[1:]) == "Three feet."
+    assert result.retried and not result.refused and result.model == "test/second:free"
+    assert llm.models_used == [None, ["test/second:free"]]
+
+
+def test_a_streamed_uncited_answer_is_kept_and_flagged():
+    result, events, llm = _stream_answer("The rate is three feet.", score=3.5)
+    assert result.uncited and not result.refused and not result.retried and len(llm.calls) == 1
+    assert "".join(data["text"] for _, data in events) == "The rate is three feet."

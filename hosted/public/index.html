@@ -5,407 +5,82 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cross-Division Q&amp;A</title>
 <meta name="description" content="Prototype: ask another NCDOT division's manuals a question and get an answer with page citations.">
-<style>
-  :root {
-    --bg: #f4f5f7;
-    --surface: #ffffff;
-    --text: #1d2733;
-    --muted: #5a6573;
-    --border: #d5dae1;
-    --accent: #1f4e8c;
-    --accent-text: #ffffff;
-    --accent-soft: #e8eef7;
-    --notice-bg: #fff7e6;
-    --notice-border: #e8c27a;
-    --error-bg: #fdecec;
-    --error-border: #e3a3a3;
-    --focus: #f0b429;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #14181d;
-      --surface: #1c2229;
-      --text: #e6e9ed;
-      --muted: #a3acb8;
-      --border: #333c47;
-      --accent: #7fb0f0;
-      --accent-text: #0e1620;
-      --accent-soft: #233041;
-      --notice-bg: #2e2717;
-      --notice-border: #7a6233;
-      --error-bg: #351f20;
-      --error-border: #7d4446;
-    }
-  }
-  * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-    overflow-wrap: anywhere;
-  }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
-  header { padding: 8px 0 4px; }
-  .tag {
-    display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .04em;
-    text-transform: uppercase; color: var(--muted); border: 1px solid var(--border);
-    border-radius: 4px; padding: 1px 6px; margin-bottom: 8px;
-  }
-  h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 6px; }
-  .lede { margin: 0 0 16px; color: var(--muted); }
-  .card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-    padding: 16px; margin-bottom: 16px;
-  }
-  .row { display: grid; grid-template-columns: 1fr; gap: 12px; }
-  @media (min-width: 560px) { .row { grid-template-columns: 1fr 1fr; } }
-  label { display: block; font-weight: 600; font-size: .95rem; margin-bottom: 4px; }
-  .hint { font-size: .85rem; color: var(--muted); margin: 4px 0 0; }
-  select, textarea, button { font: inherit; color: inherit; }
-  select, textarea {
-    width: 100%; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 6px; padding: 10px;
-  }
-  select { min-height: 44px; }
-  textarea { min-height: 96px; resize: vertical; }
-  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-  .examples { margin: 14px 0 4px; }
-  .examples p { margin: 0 0 6px; font-size: .9rem; color: var(--muted); }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  .chip {
-    background: var(--accent-soft); color: var(--text); border: 1px solid var(--border);
-    border-radius: 16px; padding: 6px 12px; font-size: .9rem; text-align: left; cursor: pointer;
-    max-width: 100%;
-  }
-  .chip:hover { border-color: var(--accent); }
-  .ask-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
-  .primary {
-    background: var(--accent); color: var(--accent-text); border: 0; border-radius: 6px;
-    padding: 10px 22px; font-weight: 600; min-height: 44px; cursor: pointer;
-  }
-  .primary:disabled { opacity: .6; cursor: progress; }
-  .count { font-size: .85rem; color: var(--muted); margin-left: auto; }
-  .status { display: flex; gap: 10px; align-items: center; color: var(--muted); }
-  .spinner {
-    width: 18px; height: 18px; border-radius: 50%; flex: none;
-    border: 3px solid var(--border); border-top-color: var(--accent);
-    animation: spin 0.9s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
-  .result-head { font-size: .9rem; color: var(--muted); margin: 0 0 8px; }
-  .question { font-weight: 600; margin: 0 0 10px; }
-  .answer p { margin: 0 0 10px; }
-  .answer ul, .answer ol { margin: 0 0 10px; padding-left: 22px; }
-  .cite {
-    font-size: .75em; vertical-align: super; line-height: 0; text-decoration: none;
-    color: var(--accent); font-weight: 700; padding: 0 1px;
-  }
-  .notice { background: var(--notice-bg); border-color: var(--notice-border); }
-  .error { background: var(--error-bg); border-color: var(--error-border); }
-  .secondary {
-    background: transparent; color: var(--accent); border: 1px solid var(--accent);
-    border-radius: 6px; padding: 8px 14px; font-weight: 600; cursor: pointer; min-height: 40px;
-  }
-  h2 { font-size: 1rem; margin: 16px 0 8px; }
-  ol.sources { list-style: none; padding: 0; margin: 0; }
-  ol.sources li { border-top: 1px solid var(--border); padding: 10px 0; }
-  .src-n { font-weight: 700; color: var(--accent); margin-right: 4px; }
-  .src-title { font-weight: 600; }
-  .src-meta { font-size: .9rem; color: var(--muted); }
-  .src-link { display: inline-block; margin-top: 4px; font-size: .9rem; color: var(--accent); }
-  details { margin-top: 6px; font-size: .88rem; }
-  summary { cursor: pointer; color: var(--muted); }
-  blockquote {
-    margin: 6px 0 0; padding: 8px 10px; border-left: 3px solid var(--border);
-    background: var(--bg); color: var(--text);
-  }
-  .model { font-size: .8rem; color: var(--muted); margin-top: 10px; }
-  .model + details { margin-top: 2px; font-size: .8rem; }
-  table.timing { border-collapse: collapse; margin-top: 4px; color: var(--muted); }
-  table.timing td { padding: 1px 12px 1px 0; }
-  table.timing td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
-  table.timing tr.total td { border-top: 1px solid var(--border); font-weight: 600; }
-  footer { font-size: .85rem; color: var(--muted); padding: 4px 0 24px; }
-  footer ul { padding-left: 18px; margin: 6px 0; }
-  footer a { color: var(--accent); }
-  [hidden] { display: none !important; }
-</style>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/docs.css">
+<link rel="stylesheet" href="css/chat.css">
+<link rel="stylesheet" href="css/sources.css">
+<link rel="stylesheet" href="css/steps.css">
+<!-- Plain scripts sharing window.App, run in this order once the page is parsed.
+     Each panel's file is owned by one ticket: docs (DAR-620), sources (DAR-627),
+     chat (DAR-619), api + steps (DAR-629); render and app are shared. -->
+<script defer src="js/render.js"></script>
+<script defer src="js/api.js"></script>
+<script defer src="js/steps.js"></script>
+<script defer src="js/sources.js"></script>
+<script defer src="js/docs.js"></script>
+<script defer src="js/chat.js"></script>
+<script defer src="js/app.js"></script>
 </head>
 <body>
-<div class="wrap">
-  <header>
+<header class="topbar">
+  <button type="button" class="drawer-toggle" id="open-docs" aria-controls="docs-panel" aria-expanded="false">Documents</button>
+  <div class="brand">
     <span class="tag">Prototype</span>
     <h1>Ask another division's manuals</h1>
-    <p class="lede">Pick your division and the division you have a question for. The answer comes only from that division's published NCDOT manual, with the page it came from, instead of waiting on an email reply.</p>
-  </header>
+  </div>
+  <button type="button" class="drawer-toggle" id="open-sources" aria-controls="sources-panel" aria-expanded="false">Sources</button>
+</header>
 
-  <form class="card" id="ask-form" novalidate>
-    <div class="row">
-      <div>
-        <label for="asker">I work in</label>
-        <select id="asker" name="asker"></select>
-      </div>
-      <div>
-        <label for="target">Ask</label>
-        <select id="target" name="target"></select>
-        <p class="hint" id="target-docs"></p>
-      </div>
+<div class="app">
+  <aside class="panel panel-docs" id="docs-panel" aria-label="Divisions and documents">
+    <div class="panel-head">
+      <h2>Documents</h2>
+      <button type="button" class="drawer-close" data-close-drawer aria-label="Close documents">&times;</button>
     </div>
+    <div class="pickers">
+      <label for="asker">I work in</label>
+      <select id="asker" name="asker"></select>
+      <label for="target">Ask</label>
+      <select id="target" name="target"></select>
+    </div>
+    <div id="doc-groups"></div>
+  </aside>
+
+  <main class="panel panel-chat" id="chat-panel">
+    <p class="lede">Pick your division and the division you have a question for. The answer comes only from that division's published NCDOT manual, with the page it came from, instead of waiting on an email reply.</p>
 
     <div class="examples">
       <p id="examples-label">Try an example:</p>
       <div class="chips" id="examples"></div>
     </div>
 
-    <label for="question" style="margin-top:12px">Your question</label>
-    <textarea id="question" name="question" maxlength="500" placeholder="Type a question, or tap an example above"></textarea>
-    <div class="ask-row">
-      <button type="submit" class="primary" id="ask-btn">Ask</button>
-      <div class="status" id="status" hidden role="status" aria-live="polite">
-        <span class="spinner" aria-hidden="true"></span><span id="status-text"></span>
+    <div id="thread" aria-live="polite"></div>
+
+    <form class="composer card" id="ask-form" novalidate>
+      <label for="question">Your question</label>
+      <textarea id="question" name="question" maxlength="500" placeholder="Type a question, or tap an example above"></textarea>
+      <div class="ask-row">
+        <button type="submit" class="primary" id="ask-btn">Ask</button>
+        <div class="status" id="status" hidden role="status" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span><span id="status-text"></span>
+        </div>
+        <span class="count" id="count"></span>
       </div>
-      <span class="count" id="count"></span>
+    </form>
+
+    <footer>
+      <p>Answers are written by a free AI model from the cited pages only. Check the linked page before relying on an answer. Questions are sent to OpenRouter to generate the answer; don't enter personal or sensitive information.</p>
+    </footer>
+  </main>
+
+  <aside class="panel panel-sources" id="sources-panel" aria-label="Sources">
+    <div class="panel-head">
+      <h2>Sources</h2>
+      <button type="button" class="drawer-close" data-close-drawer aria-label="Close sources">&times;</button>
     </div>
-  </form>
-
-  <section id="result" class="card" hidden aria-live="polite"></section>
-
-  <footer>
-    <p>Answers are written by a free AI model from the cited pages only. Check the linked page before relying on an answer. Questions are sent to OpenRouter to generate the answer; don't enter personal or sensitive information.</p>
-    <p>Documents searched:</p>
-    <ul id="doc-list"></ul>
-  </footer>
+    <div id="sources"></div>
+  </aside>
 </div>
-
-<script>
-(function () {
-  "use strict";
-  var state = { divisions: [], byId: {}, maxChars: 500, busy: false };
-  var el = function (id) { return document.getElementById(id); };
-  var asker = el("asker"), target = el("target"), question = el("question");
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
-
-  // Minimal, safe Markdown: the text is escaped first, then **bold**, lists,
-  // paragraphs and [n] citation markers are turned into HTML.
-  function renderAnswer(text, sourceCount) {
-    var inline = function (s) {
-      return escapeHtml(s)
-        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        .replace(/\[(\d+)\]/g, function (m, n) {
-          n = Number(n);
-          if (n < 1 || n > sourceCount) return "";
-          return '<a class="cite" href="#src-' + n + '" aria-label="source ' + n + '">[' + n + "]</a>";
-        });
-    };
-    var html = "", list = null, para = [];
-    function flushPara() { if (para.length) { html += "<p>" + para.map(inline).join(" ") + "</p>"; para = []; } }
-    function flushList() { if (list) { html += "<" + list.tag + ">" + list.items.map(function (i) { return "<li>" + inline(i) + "</li>"; }).join("") + "</" + list.tag + ">"; list = null; } }
-    text.split(/\r?\n/).forEach(function (line) {
-      var t = line.trim(), m;
-      if (!t) { flushPara(); flushList(); return; }
-      if ((m = t.match(/^[-*•]\s+(.*)$/)) || (m = t.match(/^(\d+)[.)]\s+(.*)$/))) {
-        var tag = /^\d/.test(t) ? "ol" : "ul";
-        var item = m[2] !== undefined ? m[2] : m[1];
-        flushPara();
-        if (!list || list.tag !== tag) { flushList(); list = { tag: tag, items: [] }; }
-        list.items.push(item);
-        return;
-      }
-      flushList();
-      para.push(t.replace(/^#+\s*/, ""));
-    });
-    flushPara(); flushList();
-    return html;
-  }
-
-  function option(d) {
-    var o = document.createElement("option");
-    o.value = d.id; o.textContent = d.name;
-    return o;
-  }
-
-  function other(id) {
-    var o = state.divisions.filter(function (d) { return d.id !== id; });
-    return o.length ? o[0].id : id;
-  }
-
-  function renderTarget() {
-    var d = state.byId[target.value];
-    el("target-docs").textContent = d ? "Searches: " + d.documents.map(function (x) { return x.title; }).join("; ") : "";
-    el("examples-label").textContent = "Try an example question for " + (d ? d.name : "") + ":";
-    var box = el("examples");
-    box.innerHTML = "";
-    (d ? d.examples : []).forEach(function (q) {
-      var b = document.createElement("button");
-      b.type = "button"; b.className = "chip"; b.textContent = q;
-      b.addEventListener("click", function () { question.value = q; updateCount(); ask(); });
-      box.appendChild(b);
-    });
-  }
-
-  function updateCount() {
-    var n = question.value.length;
-    el("count").textContent = n > state.maxChars * 0.8 ? n + " / " + state.maxChars : "";
-  }
-
-  function setBusy(busy, text) {
-    state.busy = busy;
-    el("ask-btn").disabled = busy;
-    el("status").hidden = !busy;
-    el("status-text").textContent = text || "";
-  }
-
-  function showResult(html, cls) {
-    var r = el("result");
-    r.className = "card" + (cls ? " " + cls : "");
-    r.innerHTML = html;
-    r.hidden = false;
-  }
-
-  function sourcesHtml(sources) {
-    return '<h2>Sources</h2><ol class="sources">' + sources.map(function (s) {
-      var meta = [];
-      if (s.page) meta.push(s.page_end && s.page_end !== s.page ? "PDF pages " + s.page + "–" + s.page_end : "PDF page " + s.page);
-      if (s.section) meta.push("Section " + escapeHtml(s.section));
-      var link = s.url
-        ? '<a class="src-link" href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener">Open the PDF at this page</a>'
-        : "";
-      return '<li id="src-' + s.n + '"><span class="src-n">[' + s.n + ']</span>' +
-        '<span class="src-title">' + escapeHtml(s.title) + "</span>" +
-        '<div class="src-meta">' + meta.join(" · ") + "</div>" + link +
-        "<details><summary>Show the passage used</summary><blockquote>" + escapeHtml(s.excerpt) + "</blockquote></details></li>";
-    }).join("") + "</ol>";
-  }
-
-  // timing_ms keys from hosted/divrag/timing.py, in pipeline order.
-  var STEP_LABELS = [
-    ["model_load", "Loading the search models"],
-    ["embed", "Reading the question"],
-    ["search", "Searching the documents"],
-    ["rerank", "Reranking the passages"],
-    ["llm", "Writing the answer"],
-    ["citations", "Checking the citations"],
-    ["retry", "Retrying with another model"],
-    ["suggest", "Checking the other divisions"]
-  ];
-  var OPTIONAL_STEPS = { retry: true, suggest: true };
-
-  function seconds(ms) { return ms < 1000 ? ms + " ms" : (ms / 1000).toFixed(1) + " s"; }
-
-  function timingHtml(data) {
-    var t = data.timing_ms;
-    if (!t) return "";
-    var line = '<p class="model">' + (data.model && !data.refused ? "Written by " + escapeHtml(data.model) + " in " : "Answered in ") +
-      seconds(t.total) + (data.retried && data.first_model ? " (retried after " + escapeHtml(data.first_model) + ")" : "") + ".</p>";
-    var rows = STEP_LABELS.filter(function (s) {
-      return typeof t[s[0]] === "number" && !(OPTIONAL_STEPS[s[0]] && !t[s[0]]);
-    }).map(function (s) {
-      return "<tr><td>" + s[1] + "</td><td>" + seconds(t[s[0]]) + "</td></tr>";
-    }).join("");
-    return line + '<details><summary>Time per step</summary><table class="timing">' + rows +
-      '<tr class="total"><td>Total</td><td>' + seconds(t.total) + "</td></tr></table></details>";
-  }
-
-  function render(q, data) {
-    var head = '<p class="result-head">Answer from <strong>' + escapeHtml(data.target.name) + "</strong>" +
-      (data.asker.id !== data.target.id ? ", for a colleague in " + escapeHtml(data.asker.name) : "") + "</p>" +
-      '<p class="question">' + escapeHtml(q) + "</p>";
-    if (data.refused) {
-      var html = head + '<div class="answer"><p>' + escapeHtml(data.answer) + "</p></div>";
-      (data.suggest || []).forEach(function (s) {
-        html += '<button type="button" class="secondary" data-suggest="' + escapeHtml(s.id) + '">Ask ' + escapeHtml(s.name) + " instead</button>";
-      });
-      showResult(html + timingHtml(data), "notice");
-      Array.prototype.forEach.call(el("result").querySelectorAll("[data-suggest]"), function (b) {
-        b.addEventListener("click", function () {
-          target.value = b.getAttribute("data-suggest");
-          renderTarget(); ask();
-        });
-      });
-      return;
-    }
-    showResult(head + '<div class="answer">' + renderAnswer(data.answer, data.sources.length) + "</div>" +
-      sourcesHtml(data.sources) + timingHtml(data));
-  }
-
-  function ask() {
-    if (state.busy) return;
-    var q = question.value.trim();
-    if (q.length < 3) { question.focus(); return; }
-    var t = state.byId[target.value];
-    setBusy(true, "Searching the " + t.name + " documents and writing an answer… The first question can take up to a minute while the demo starts.");
-    fetch("api/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: q, asker: asker.value, target: target.value })
-    }).then(function (res) {
-      return res.json().catch(function () { return { error: "The server returned an unexpected response (" + res.status + ")." }; });
-    }).then(function (data) {
-      if (data.error) { showResult('<p class="question">' + escapeHtml(q) + "</p><p>" + escapeHtml(data.error) + "</p>", "error"); return; }
-      render(q, data);
-    }).catch(function () {
-      showResult("<p>Couldn't reach the server. Check your connection and try again.</p>", "error");
-    }).then(function () {
-      setBusy(false);
-      el("result").scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }
-
-  // Load the search models while the visitor picks divisions and types. api/warm answers once they are
-  // loaded (at once on a warm instance); it is re-sent at most every 30 s because an idle instance can be stopped.
-  var warm = { inFlight: false, at: 0 };
-  function warmUp() {
-    if (warm.inFlight || Date.now() - warm.at < 30000) return;
-    warm.inFlight = true;
-    // The cooldown follows failed attempts too, so a broken warm-up isn't retried on every keystroke.
-    fetch("api/warm", { method: "POST" }).catch(function () {}).then(function () {
-      warm.inFlight = false;
-      warm.at = Date.now();
-    });
-  }
-
-  asker.addEventListener("change", function () {
-    if (asker.value === target.value) { target.value = other(asker.value); renderTarget(); }
-    warmUp();
-  });
-  target.addEventListener("change", function () { renderTarget(); warmUp(); });
-  question.addEventListener("focus", warmUp);
-  question.addEventListener("input", function () { updateCount(); warmUp(); });
-  question.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ask(); }
-  });
-  el("ask-form").addEventListener("submit", function (e) { e.preventDefault(); ask(); });
-
-  fetch("api/divisions").then(function (r) { return r.json(); }).then(function (data) {
-    state.divisions = data.divisions;
-    state.maxChars = data.max_question_chars || 500;
-    question.maxLength = state.maxChars;
-    data.divisions.forEach(function (d) {
-      state.byId[d.id] = d;
-      asker.appendChild(option(d));
-      target.appendChild(option(d));
-    });
-    asker.value = data.divisions[0].id;
-    target.value = other(asker.value);
-    renderTarget();
-    warmUp();
-    el("doc-list").innerHTML = data.divisions.map(function (d) {
-      return d.documents.map(function (doc) {
-        return '<li>' + escapeHtml(d.name) + ': <a href="' + escapeHtml(doc.url) + '" target="_blank" rel="noopener">' + escapeHtml(doc.title) + "</a></li>";
-      }).join("");
-    }).join("");
-  }).catch(function () {
-    showResult("<p>Couldn't load the demo. Please refresh the page.</p>", "error");
-  });
-})();
-</script>
+<div class="scrim" id="scrim" hidden></div>
 </body>
 </html>

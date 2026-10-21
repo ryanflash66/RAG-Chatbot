@@ -6,14 +6,15 @@
 `division` is the id of the division (divisions.py) whose documents the chunk
 came from. Search is a dot product (cosine similarity, as rows and queries are
 unit length); a division filter restricts it to that division's rows before
-ranking, so another division's chunk can never be returned. Only numpy is
-needed to load and search it.
+ranking, so another division's chunk can never be returned. A `sources` filter
+(document file names) narrows it further to the documents the visitor ticked.
+Only numpy is needed to load and search it.
 """
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -34,7 +35,7 @@ class IndexFile:
         self.model = model
         self.chunks = chunks
         self.vectors = vectors
-        self._division_rows: Dict[Optional[str], np.ndarray] = {}
+        self._rows_cache: Dict[Tuple[Optional[str], Optional[Tuple[str, ...]]], np.ndarray] = {}
         self._position = {id(chunk): i for i, chunk in enumerate(chunks)}
 
     @classmethod
@@ -56,14 +57,20 @@ class IndexFile:
     def divisions(self) -> List[str]:
         return sorted({c.get("division") for c in self.chunks if c.get("division")})
 
-    def _rows(self, division: Optional[str]) -> np.ndarray:
-        if division not in self._division_rows:
-            if division is None:
-                rows = np.arange(len(self.chunks))
-            else:
-                rows = np.array([i for i, c in enumerate(self.chunks) if c.get("division") == division], dtype=int)
-            self._division_rows[division] = rows
-        return self._division_rows[division]
+    def _rows(self, division: Optional[str], sources: Optional[Sequence[str]] = None) -> np.ndarray:
+        """Row numbers of `division`'s chunks (every division when None), only from `sources` when given."""
+        key = (division, tuple(sorted(set(sources))) if sources is not None else None)
+        if key not in self._rows_cache:
+            wanted = set(sources) if sources is not None else None
+            rows = [i for i, c in enumerate(self.chunks)
+                    if (division is None or c.get("division") == division)
+                    and (wanted is None or c.get("source") in wanted)]
+            self._rows_cache[key] = np.array(rows, dtype=int)
+        return self._rows_cache[key]
+
+    def count(self, division: Optional[str] = None, sources: Optional[Sequence[str]] = None) -> int:
+        """How many chunks a search with the same filters would look through."""
+        return len(self._rows(division, sources))
 
     def position(self, chunk: Dict[str, Any]) -> int:
         """Where the chunk sits in the index: documents in order, each in reading order."""
@@ -77,9 +84,10 @@ class IndexFile:
         after = self.chunks[i + 1]
         return after if after.get("source") == chunk.get("source") else None
 
-    def search(self, query_vector: Sequence[float], k: int = 3, division: Optional[str] = None) -> List[Hit]:
-        """Top k chunks by cosine similarity; only `division`'s chunks when it is given."""
-        rows = self._rows(division)
+    def search(self, query_vector: Sequence[float], k: int = 3, division: Optional[str] = None,
+               sources: Optional[Sequence[str]] = None) -> List[Hit]:
+        """Top k chunks by cosine similarity; only `division`'s chunks (and `sources`' documents) when given."""
+        rows = self._rows(division, sources)
         if not len(rows):
             return []
         scores = self.vectors[rows] @ np.asarray(query_vector, dtype=np.float32)
