@@ -1,9 +1,10 @@
 """The hosted demo: one FastAPI app that serves the page and answers questions.
 
-    GET  /                the page (public/index.html)
+    GET  /                the page (public/index.html; public/css and public/js beside it)
     GET  /api/divisions   divisions, their documents and example questions
     POST /api/warm        load the models now, returning once they are ready
-    POST /api/ask         {"question", "asker", "target"} -> answer with cited sources and timing_ms per step
+    POST /api/ask         {"question", "asker", "target", "history"?, "documents"?}
+                          -> answer with cited sources and timing_ms per step
     GET  /api/health      index and model settings (no secrets)
 
 Vercel loads `app` from this file (a FastAPI entrypoint at the project root,
@@ -25,15 +26,16 @@ import threading
 import time
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Deque, Dict, Optional
+from typing import Deque, Dict, List, NamedTuple, Optional, Union
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from divrag.answer import Answerer
 from divrag.config import Settings, load_settings
-from divrag.divisions import BY_ID, DIVISIONS
+from divrag.divisions import BY_ID, DIVISIONS, Division
 from divrag.embedder import Embedder, Reranker, cpu_info, model_cache_dir
 from divrag.index_file import IndexFile
 from divrag.llm import MISCONFIGURED, TOO_SLOW, LLMError, OpenRouterClient
@@ -123,11 +125,55 @@ def _error(status: int, message: str) -> JSONResponse:
     return JSONResponse({"error": message}, status_code=status)
 
 
+class Turn(BaseModel):
+    """One earlier exchange of the conversation, as the page sends it back."""
+    question: str = Field(max_length=5000)
+    answer: str = Field(max_length=4000)
+
+
 class AskRequest(BaseModel):
-    # Generous hard caps; the friendly limit (MAX_QUESTION_CHARS) is checked in ask().
+    # Generous hard caps; the friendly limit (MAX_QUESTION_CHARS) is checked in _check().
     question: str = Field(max_length=5000)
     asker: str = Field(max_length=40)
     target: str = Field(max_length=40)
+    # The conversation so far, oldest first (DAR-619); the page keeps it, the server stores nothing.
+    history: List[Turn] = Field(default_factory=list, max_length=6)
+    # Document files (divisions.py `file`) to search; None searches all of the target's documents (DAR-620).
+    documents: Optional[List[str]] = Field(default=None, max_length=20)
+
+
+class Question(NamedTuple):
+    """A request that passed the checks every answering endpoint shares."""
+    text: str
+    asker: Division
+    target: Division
+    documents: Optional[List[str]]
+    history: List[Dict[str, str]]
+
+
+def _check(body: AskRequest, request: Request) -> Union[Question, JSONResponse]:
+    """The cleaned-up question, or the error reply to send instead."""
+    question = " ".join(body.question.split())
+    if len(question) < 3:
+        return _error(400, "Please type a question.")
+    if len(question) > settings.max_question_chars:
+        return _error(400, f"Please keep the question under {settings.max_question_chars} characters.")
+    asker, target = BY_ID.get(body.asker), BY_ID.get(body.target)
+    if asker is None or target is None:
+        return _error(400, "Unknown division.")
+    documents = None
+    if body.documents is not None:
+        # Only the target's own documents can be searched; anything else is dropped, never searched.
+        owned = {doc.file for doc in target.documents}
+        documents = [d for d in dict.fromkeys(body.documents) if d in owned]
+        if not documents:
+            return _error(400, "Pick at least one document to search.")
+    if not limiter.allow(_client_ip(request)):
+        return _error(429, "Too many questions in a short time. Please wait a minute and try again.")
+    if not settings.openrouter_api_key:
+        log.error("OPENROUTER_API_KEY is not set")
+        return _error(503, MISCONFIGURED)
+    return Question(question, asker, target, documents, [t.model_dump() for t in body.history])
 
 
 def _make_llm() -> OpenRouterClient:
@@ -147,7 +193,7 @@ def divisions() -> Dict:
                 "id": d.id,
                 "name": d.name,
                 "unit": d.unit,
-                "documents": [{"title": doc.title, "url": doc.url} for doc in d.documents],
+                "documents": [{"file": doc.file, "title": doc.title, "url": doc.url} for doc in d.documents],
                 "examples": list(d.examples),
             }
             for d in DIVISIONS
@@ -186,33 +232,24 @@ def health() -> Dict:
 
 @app.post("/api/ask")
 async def ask(body: AskRequest, request: Request):
-    question = " ".join(body.question.split())
-    if len(question) < 3:
-        return _error(400, "Please type a question.")
-    if len(question) > settings.max_question_chars:
-        return _error(400, f"Please keep the question under {settings.max_question_chars} characters.")
-    asker, target = BY_ID.get(body.asker), BY_ID.get(body.target)
-    if asker is None or target is None:
-        return _error(400, "Unknown division.")
-    if not limiter.allow(_client_ip(request)):
-        return _error(429, "Too many questions in a short time. Please wait a minute and try again.")
-    if not settings.openrouter_api_key:
-        log.error("OPENROUTER_API_KEY is not set")
-        return _error(503, MISCONFIGURED)
+    checked = _check(body, request)
+    if isinstance(checked, JSONResponse):
+        return checked
+    question, asker, target = checked.text, checked.asker, checked.target
 
     started = time.perf_counter()
     timer = StepTimer()
     try:
         with timer.step("model_load"):  # waits for the models on a cold instance, near 0 once loaded
             answerer = await asyncio.to_thread(runtime.answerer, _make_llm())
-        hits = await asyncio.to_thread(answerer.retrieve, question, target, timer)
+        hits = await asyncio.to_thread(answerer.retrieve, question, target, timer, checked.documents, checked.history)
         retrieved = time.perf_counter()
         # httpx's timeout is per phase, so bound the whole call to stay under Vercel's 60 s.
         remaining = max(MIN_ANSWER_SECONDS, settings.request_budget_seconds - (retrieved - started))
         try:
             deadline = time.monotonic() + remaining
-            result = await asyncio.wait_for(answerer.answer(question, asker, target, hits, deadline, timer),
-                                            timeout=remaining)
+            result = await asyncio.wait_for(answerer.answer(question, asker, target, hits, deadline, timer,
+                                                            checked.history), timeout=remaining)
         except asyncio.TimeoutError as exc:
             raise LLMError(TOO_SLOW, status=504, detail=f"no answer within {remaining:.0f}s") from exc
     except LLMError as exc:
@@ -241,3 +278,9 @@ def _ms_since(started: float) -> int:
 def _ms_text(timing: Dict[str, int]) -> str:
     """The timings as "embed=12 search=3 ..." for the log line."""
     return " ".join(f"{step}={ms}" for step, ms in timing.items())
+
+
+# Keep this last: routes registered after a mount at "/" would never be reached.
+# Locally it serves public/css and public/js beside the page; on Vercel the CDN
+# serves public/ before a request reaches this function.
+app.mount("/", StaticFiles(directory=PUBLIC_DIR, html=True), name="public")

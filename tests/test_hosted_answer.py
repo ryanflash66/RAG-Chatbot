@@ -130,7 +130,7 @@ class _FakeRetriever:
         self.searched = []
         self.candidates = []
 
-    def retrieve(self, question, division, k=5, timer=None, candidates=None):
+    def retrieve(self, question, division, k=5, timer=None, candidates=None, sources=None):
         self.searched.append(division)
         self.candidates.append(candidates)
         source = TMP if division == "wztc" else UAM
@@ -220,9 +220,9 @@ def test_answer_times_the_model_call_citations_and_retry_and_names_both_models()
 
 def test_refusal_times_the_search_of_the_other_division_as_suggest():
     class _SlowRetriever(_FakeRetriever):
-        def retrieve(self, question, division, k=5, timer=None, candidates=None):
+        def retrieve(self, question, division, k=5, timer=None, candidates=None, sources=None):
             time.sleep(0.03)
-            return super().retrieve(question, division, k, timer, candidates)
+            return super().retrieve(question, division, k, timer, candidates, sources)
 
     timer = StepTimer()
     retriever = _SlowRetriever({"wztc": -9.0, "utilities": 0.5})

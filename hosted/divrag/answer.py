@@ -22,7 +22,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .divisions import BY_ID, DIVISIONS, Division, document_for
 from .index_file import Hit
@@ -136,7 +136,13 @@ def _pages(chunk: Dict) -> str:
     return f"PDF page {chunk['page']}"
 
 
-def build_messages(question: str, asker: Division, target: Division, hits: List[Hit]) -> List[Dict[str, str]]:
+def build_messages(question: str, asker: Division, target: Division, hits: List[Hit],
+                   history: Sequence[Dict[str, str]] = ()) -> List[Dict[str, str]]:
+    """The system and user messages for one question.
+
+    `history` is the conversation so far ([{"question", "answer"}], oldest
+    first); DAR-619 adds it to the prompt.
+    """
     if asker.id == target.id:
         asker_line = f"The person asking also works in {target.name}."
     else:
@@ -303,8 +309,15 @@ class Answerer:
         self.retry_min_score = retry_min_score  # None: never retry
         self.retry_min_seconds = retry_min_seconds
 
-    def retrieve(self, question: str, target: Division, timer: Optional[StepTimer] = None) -> List[Hit]:
-        hits = self.retriever.retrieve(question, division=target.id, k=self.top_k, timer=timer)
+    def search_query(self, question: str, history: Sequence[Dict[str, str]] = ()) -> str:
+        """The text to search with. DAR-619 combines a follow-up with the previous question."""
+        return question
+
+    def retrieve(self, question: str, target: Division, timer: Optional[StepTimer] = None,
+                 documents: Optional[Sequence[str]] = None, history: Sequence[Dict[str, str]] = ()) -> List[Hit]:
+        """The passages for the question from `target`'s documents (only `documents` when given)."""
+        hits = self.retriever.retrieve(self.search_query(question, history), division=target.id, k=self.top_k,
+                                       timer=timer, sources=documents)
         return self.retriever.as_passages(self.retriever.with_following(hits, top=FOLLOWING_FOR_TOP))
 
     def suggest_divisions(self, question: str, target: Division) -> List[str]:
@@ -349,15 +362,17 @@ class Answerer:
         return (second, text, sources) if sources else None
 
     async def answer(self, question: str, asker: Division, target: Division, hits: List[Hit],
-                     deadline: Optional[float] = None, timer: Optional[StepTimer] = None) -> Answer:
+                     deadline: Optional[float] = None, timer: Optional[StepTimer] = None,
+                     history: Sequence[Dict[str, str]] = ()) -> Answer:
         """Answer from the hits.
 
         `deadline` is a time.monotonic() value that bounds the optional retry;
-        `timer` records the llm, citations, retry and suggest steps.
+        `timer` records the llm, citations, retry and suggest steps; `history`
+        is the conversation so far (see build_messages).
         """
         if not hits:
             return Answer(refusal_text(target, []), refused=True)
-        messages = build_messages(question, asker, target, hits)
+        messages = build_messages(question, asker, target, hits, history)
         with timed(timer, "llm"):
             completion = await self.llm.complete(messages)
         first_model = completion.model

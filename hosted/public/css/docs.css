@@ -1,0 +1,9 @@
+/* Left panel: division pickers and the documents each division owns (DAR-620). */
+.pickers { display: grid; gap: 4px; margin-bottom: 16px; }
+.pickers select { margin-bottom: 8px; }
+.doc-group { margin-bottom: 14px; }
+.doc-group h3 { font-size: .9rem; margin: 0 0 4px; color: var(--muted); }
+.doc-group.active h3 { color: var(--text); }
+.doc-group ul { list-style: none; padding: 0; margin: 0; }
+.doc-group li { font-size: .9rem; padding: 4px 0; }
+.doc-group a { color: var(--accent); }

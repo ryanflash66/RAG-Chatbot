@@ -1,0 +1,8 @@
+/* Right panel: the passages the active answer cites (DAR-627). */
+ol.sources { list-style: none; padding: 0; margin: 0; }
+ol.sources li { border-top: 1px solid var(--border); padding: 10px 0; }
+ol.sources li:first-child { border-top: 0; padding-top: 0; }
+.src-n { font-weight: 700; color: var(--accent); margin-right: 4px; }
+.src-title { font-weight: 600; }
+.src-meta { font-size: .9rem; color: var(--muted); }
+.src-link { display: inline-block; margin-top: 4px; font-size: .9rem; color: var(--accent); }

@@ -4,7 +4,7 @@ The division filter is applied inside the vector search (IndexFile.search), so
 the reranker and the answer only ever see the asked division's chunks.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from .embedder import Embedder, Reranker
 from .index_file import Hit, IndexFile
@@ -22,9 +22,11 @@ class Retriever:
         self.candidates = candidates
 
     def retrieve(self, question: str, division: Optional[str], k: int = 5,
-                 timer: Optional[StepTimer] = None, candidates: Optional[int] = None) -> List[Hit]:
+                 timer: Optional[StepTimer] = None, candidates: Optional[int] = None,
+                 sources: Optional[Sequence[str]] = None) -> List[Hit]:
         """The k best chunks of `division` for the question (all divisions when None).
 
+        `sources` (document file names) limits the search to those documents.
         With a reranker, the top `candidates` vector hits (default: the
         retriever's) are re-ordered by the cross-encoder and their scores are
         the cross-encoder's. `timer` records the embed, search and rerank steps.
@@ -33,7 +35,7 @@ class Retriever:
         with timed(timer, "embed"):
             vector = self.embedder.query(question)
         with timed(timer, "search"):
-            hits = self.index.search(vector, k=pool, division=division)
+            hits = self.index.search(vector, k=pool, division=division, sources=sources)
         if self.reranker and len(hits) > 1:
             with timed(timer, "rerank"):
                 scores = self.reranker.scores(question, [h.chunk["text"] for h in hits])

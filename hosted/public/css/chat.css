@@ -1,0 +1,27 @@
+/* Middle panel: examples, the conversation and the question box (DAR-619). */
+.lede { margin: 0 0 12px; color: var(--muted); }
+.examples { margin: 0 0 12px; }
+.examples p { margin: 0 0 6px; font-size: .9rem; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  background: var(--accent-soft); color: var(--text); border: 1px solid var(--border);
+  border-radius: 16px; padding: 6px 12px; font-size: .9rem; text-align: left; cursor: pointer;
+  max-width: 100%;
+}
+.chip:hover { border-color: var(--accent); }
+#thread { flex: 1 0 auto; }
+.exchange .result-head { font-size: .9rem; color: var(--muted); margin: 0 0 8px; }
+.exchange .question { font-weight: 600; margin: 0 0 10px; }
+.answer p { margin: 0 0 10px; }
+.answer ul, .answer ol { margin: 0 0 10px; padding-left: 22px; }
+.answer .streaming { white-space: pre-wrap; }
+.cite {
+  font-size: .75em; vertical-align: super; line-height: 0; text-decoration: none;
+  color: var(--accent); font-weight: 700; padding: 0 1px;
+}
+.suggest { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.composer { margin-top: 8px; }
+.ask-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.count { font-size: .85rem; color: var(--muted); margin-left: auto; }
+.status { display: flex; gap: 10px; align-items: center; color: var(--muted); }
+footer { font-size: .85rem; color: var(--muted); padding: 4px 0 24px; }

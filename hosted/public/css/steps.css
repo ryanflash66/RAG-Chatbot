@@ -1,0 +1,9 @@
+/* The progress block above each answer: live steps and their times (DAR-629). */
+.steps:empty { display: none; }
+.steps { margin-bottom: 10px; }
+.model { font-size: .8rem; color: var(--muted); margin: 0; }
+.model + details { margin-top: 2px; font-size: .8rem; }
+table.timing { border-collapse: collapse; margin-top: 4px; color: var(--muted); }
+table.timing td { padding: 1px 12px 1px 0; }
+table.timing td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+table.timing tr.total td { border-top: 1px solid var(--border); font-weight: 600; }

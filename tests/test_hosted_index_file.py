@@ -197,3 +197,17 @@ def test_committed_index_tags_every_chunk_with_a_configured_division():
         assert document is not None, chunk["source"]
         assert document in BY_ID[chunk["division"]].documents
         assert isinstance(chunk["page"], int) and chunk["page"] >= 1
+
+
+def test_search_and_count_can_be_limited_to_some_documents():
+    chunks = [_chunk("a1", 1, "a"), _chunk("b1", 1, "b"), _chunk("b2", 2, "b"), _chunk("b3", 3, "b")]
+    chunks[3]["source"] = "b-other.pdf"
+    index = IndexFile("m", chunks, _unit([[1, 0, 0], [1, 0.1, 0], [1, 0.2, 0], [1, 0, 0]]))
+    query = _unit([[1, 0, 0]])[0]
+
+    hits = index.search(query, k=10, division="b", sources=["b-other.pdf"])
+
+    assert [h.chunk["text"] for h in hits] == ["b3"]
+    assert index.count("b") == 3 and index.count("b", ["b.pdf"]) == 2 and index.count() == 4
+    assert index.count("a", ["b.pdf"]) == 0  # a document of another division never widens the search
+    assert index.search(query, k=10, division="b", sources=[]) == []

@@ -26,9 +26,11 @@ class _FakeRetriever:
 
     def __init__(self):
         self.divisions = []
+        self.sources = []
 
-    def retrieve(self, question, division, k=5, timer=None, candidates=None):
+    def retrieve(self, question, division, k=5, timer=None, candidates=None, sources=None):
         self.divisions.append(division)
+        self.sources.append(sources)
         if timer is not None:
             with timer.step("embed"):
                 pass
@@ -154,6 +156,9 @@ def test_answer_that_outlasts_the_time_budget_returns_a_friendly_504(api, monkey
     ({"question": "  ", "asker": "wztc", "target": "utilities"}, 400),
     ({"question": "Is this ok?", "asker": "wztc", "target": "finance"}, 400),
     ({"question": "x" * 6000, "asker": "wztc", "target": "utilities"}, 422),
+    ({"question": "Is this ok?", "asker": "wztc", "target": "utilities", "documents": ["TMP Design Manual (Combined, No Links).pdf"]}, 400),
+    ({"question": "Is this ok?", "asker": "wztc", "target": "utilities", "documents": []}, 400),
+    ({"question": "Is this ok?", "asker": "wztc", "target": "utilities", "history": [{"question": "q", "answer": "a"}] * 7}, 422),
 ])
 def test_invalid_requests_are_rejected_before_any_search(api, body, status):
     client, retriever, _ = api
@@ -222,3 +227,30 @@ def test_no_cors_headers_for_other_origins_by_default(api):
     client, _, _ = api
     response = client.get("/api/divisions", headers={"Origin": "https://evil.example"})
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_only_the_targets_ticked_documents_are_searched_and_history_is_accepted(api):
+    client, retriever, _ = api
+    body = {"question": "When is a lane closure required?", "asker": "wztc", "target": "utilities",
+            "documents": [UAM, "TMP Design Manual (Combined, No Links).pdf", UAM],
+            "history": [{"question": "Who pays for a detour?", "answer": "The encroaching party [1]."}]}
+
+    response = client.post("/api/ask", json=body)
+
+    assert response.status_code == 200
+    assert retriever.sources == [[UAM]]  # the other division's manual is dropped, duplicates too
+    _ask(client)
+    assert retriever.sources[-1] is None  # no list: every document of the target
+
+
+def test_divisions_name_each_documents_file_for_the_documents_filter(api):
+    client, _, _ = api
+    documents = {d["id"]: d["documents"] for d in client.get("/api/divisions").json()["divisions"]}
+    assert documents["utilities"][0]["file"] == UAM
+
+
+@pytest.mark.parametrize("path,kind", [("/css/base.css", "text/css"), ("/js/app.js", "javascript")])
+def test_the_pages_stylesheets_and_scripts_are_served(api, path, kind):
+    client, _, _ = api
+    response = client.get(path)
+    assert response.status_code == 200 and kind in response.headers["content-type"]

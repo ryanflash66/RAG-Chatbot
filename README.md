@@ -189,7 +189,7 @@ A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Contr
 | Path | What it is |
 |---|---|
 | `hosted/index.py` | FastAPI app (`app`): `GET /` page, `GET /api/divisions`, `POST /api/warm`, `POST /api/ask`, `GET /api/health` |
-| `hosted/public/index.html` | the page (plain HTML/CSS/JS, mobile-first) |
+| `hosted/public/` | the page, no build step: `index.html` (three panels: documents, chat, sources; the side panels are drawers on phones), `css/` and `js/` (plain scripts sharing `window.App`, one file per panel) |
 | `hosted/divrag/` | runtime: `divisions.py` (one row per division), index search with a division filter, fastembed embedder and reranker, OpenRouter client, prompt and citations |
 | `hosted/index/` | the committed index: `chunks.json` (each chunk tagged with its `division`) and float16 `vectors.npy` |
 | `hosted/requirements.txt` | runtime dependencies only: fastembed, numpy, fastapi, httpx |
