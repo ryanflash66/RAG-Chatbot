@@ -17,17 +17,35 @@
   var STORE_KEY = "ncdot-qa-thread-v1";
   // A payload with its sources is a few kB; sessionStorage holds about 5 MB per site.
   var STORE_EXCHANGES = 40;
+  var INTERRUPTED = "The page was reloaded before this question was answered.";
   var reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   var busy = false, answers = 0, askedHere = false;
   var question, thread, newChatBtn, hint;
   // Finished exchanges, oldest first: {question, asker, target, prior, standalone} plus payload or error.
   // prior is the previous question the server searched with (see history()).
   var exchanges = [];
+  // The question being answered, stored before it is sent so a reload mid-answer doesn't lose it.
+  var pending = null;
   var recordFor = {};  // answerId -> its exchange, for the "Ask … instead" buttons
   var lastTarget = null;      // the division the newest exchange in the thread asked
   var pendingDivider = null;  // "Now asking …" after it while the Ask division is a different one
 
   function has(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
+
+  // Text goes in through textContent only; the one HTML insert is the answer's own Markdown (R.answer).
+  function node(tag, className, text) {
+    var n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function button(className, text, onClick) {
+    var b = node("button", className, text);
+    b.type = "button";
+    b.addEventListener("click", onClick);
+    return b;
+  }
 
   function updateCount() {
     var n = question.value.length, max = App.state.maxChars;
@@ -53,15 +71,20 @@
       " question. For a new topic, start a new chat." : "";
   }
 
-  function scrollTo(node, instant) {
-    node.scrollIntoView({ behavior: instant || reduceMotion ? "auto" : "smooth", block: "start" });
+  function scrollTo(target, instant) {
+    target.scrollIntoView({ behavior: instant || reduceMotion ? "auto" : "smooth", block: "start" });
+  }
+
+  // Changing the division in code reloads its document list (DAR-620), so it is only done when it differs.
+  function selectDivisions(askerId, targetId) {
+    el("asker").value = askerId;
+    if (App.selection().target !== targetId) App.setTarget(targetId);
   }
 
   function divider(targetId) {
-    var d = document.createElement("p");
-    d.className = "divider";
+    var d = node("p", "divider");
     d.setAttribute("data-target", targetId);
-    d.innerHTML = "<span>Now asking " + R.escapeHtml(App.state.byId[targetId].name) + "</span>";
+    d.appendChild(node("span", null, "Now asking " + App.state.byId[targetId].name));
     return d;
   }
 
@@ -80,14 +103,11 @@
   function showExamples(division) {
     el("examples-label").textContent = "Try an example question for " + (division ? division.name : "") + ":";
     var box = el("examples");
-    box.innerHTML = "";
+    box.textContent = "";
     (division ? division.examples : []).forEach(function (q) {
-      var b = document.createElement("button");
-      b.type = "button"; b.className = "chip"; b.textContent = q;
       // An example is a question of its own, so it goes without the conversation
       // (prefixing the previous question would only blur its search) and starts a new topic.
-      b.addEventListener("click", function () { question.value = q; updateCount(); ask(q, { standalone: true }); });
-      box.appendChild(b);
+      box.appendChild(button("chip", q, function () { question.value = q; updateCount(); ask(q, { standalone: true }); }));
     });
     if (thread) targetChanged(division && division.id);
   }
@@ -96,12 +116,17 @@
   // key the sources panel keeps that answer's sources under.
   function newExchange(q, answerId, askerId, targetId) {
     var asker = App.state.byId[askerId], target = App.state.byId[targetId];
-    var ex = document.createElement("article");
-    ex.className = "exchange card";
-    ex.innerHTML = '<p class="result-head">Answer from <strong>' + R.escapeHtml(target.name) + "</strong>" +
-      (asker.id !== target.id ? ", for a colleague in " + R.escapeHtml(asker.name) : "") + "</p>" +
-      '<p class="question">' + R.escapeHtml(q) + "</p>" +
-      '<div class="reply" data-answer-id="' + answerId + '"><div class="steps"></div><div class="answer"></div></div>';
+    var ex = node("article", "exchange card");
+    var head = node("p", "result-head", "Answer from ");
+    head.appendChild(node("strong", null, target.name));
+    if (asker.id !== target.id) head.appendChild(document.createTextNode(", for a colleague in " + asker.name));
+    var reply = node("div", "reply");
+    reply.setAttribute("data-answer-id", answerId);
+    reply.appendChild(node("div", "steps"));
+    reply.appendChild(node("div", "answer"));
+    ex.appendChild(head);
+    ex.appendChild(node("p", "question", q));
+    ex.appendChild(reply);
     return ex;
   }
 
@@ -125,16 +150,17 @@
     var answerEl = ex.querySelector(".answer");
     if (data.refused) {
       ex.classList.add("notice");
-      var html = "<p>" + R.escapeHtml(data.answer) + "</p>";
+      answerEl.textContent = "";
+      answerEl.appendChild(node("p", null, data.answer));
       if ((data.suggest || []).length) {
-        html += '<div class="suggest">' + data.suggest.map(function (s) {
-          return '<button type="button" class="secondary" data-suggest="' + R.escapeHtml(s.id) + '">Ask ' + R.escapeHtml(s.name) + " instead</button>";
-        }).join("") + "</div>";
+        var box = node("div", "suggest");
+        data.suggest.forEach(function (s) {
+          var b = button("secondary", "Ask " + s.name + " instead", function () { askInstead(answerId, q, s.id); });
+          b.setAttribute("data-suggest", s.id);
+          box.appendChild(b);
+        });
+        answerEl.appendChild(box);
       }
-      answerEl.innerHTML = html;
-      Array.prototype.forEach.call(answerEl.querySelectorAll("[data-suggest]"), function (b) {
-        b.addEventListener("click", function () { askInstead(answerId, q, b.getAttribute("data-suggest")); });
-      });
       App.sources.show([], answerId);
     } else {
       answerEl.innerHTML = R.answer(data.answer, data.sources.length);
@@ -143,9 +169,35 @@
     steps.finish(data);
   }
 
-  function showError(ex, message) {
+  // An error has no sources: the panel is emptied so an older answer's sources don't sit next to it.
+  function showError(ex, record) {
+    var answerEl = ex.querySelector(".answer");
     ex.classList.add("error");
-    ex.querySelector(".answer").innerHTML = "<p>" + R.escapeHtml(message) + "</p>";
+    answerEl.textContent = "";
+    answerEl.appendChild(node("p", null, record.error));
+    if (!record.retried) {
+      var b = button("secondary retry", "Try again", function () { retry(record, b); });
+      answerEl.appendChild(b);
+    }
+    App.sources.clear();
+  }
+
+  // While DAR-629 streams the answer, its text so far, as plain text.
+  function showStreaming(answerEl, text) {
+    var p = answerEl.querySelector(".streaming");
+    if (!p) {
+      answerEl.textContent = "";
+      p = answerEl.appendChild(node("p", "streaming"));
+    }
+    p.textContent = text;
+  }
+
+  // The options that send a question again the way it was first sent: an example
+  // or an "Ask … instead" again without the thread (with the carried question, if any).
+  function sameWay(record) {
+    if (!record.standalone) return null;
+    var prior = typeof record.prior === "string" ? record.prior : "";
+    return { carry: prior ? [{ question: prior, answer: "" }] : [] };
   }
 
   // The server suggested the other division after searching it with the same
@@ -159,10 +211,21 @@
     ask(q, { carry: prior ? [{ question: prior, answer: "" }] : [] });
   }
 
+  // "Try again" on a failed exchange: the same question to the same divisions, as a new
+  // exchange at the bottom, whatever is in the question box now.
+  function retry(record, b) {
+    if (busy) return;
+    record.retried = true;
+    if (b.parentNode) b.parentNode.removeChild(b);
+    save();
+    selectDivisions(record.asker, record.target);
+    ask(record.question, sameWay(record));
+  }
+
   // Draws a finished exchange, live or restored, so both look the same.
   function finish(view, record) {
     if (record.payload) showDone(view.ex, record.question, record.payload, view.answerId, view.steps);
-    else showError(view.ex, record.error);
+    else showError(view.ex, record);
   }
 
   function ask(text, options) {
@@ -180,8 +243,8 @@
       standalone: !!(options.standalone || options.carry)
     };
     var view = addExchange(record);
-    var answerEl = view.answerEl;
-    var streamed = "";
+    pending = record;
+    save();
     // The question now shows in the thread; the box is left alone when it holds
     // something else (an "Ask … instead" button re-asks an older question).
     if (question.value.trim() === q) { question.value = ""; updateCount(); }
@@ -190,13 +253,14 @@
     setBusy(true, "Searching the " + target.name + " documents and writing an answer…" +
       (askedHere ? "" : " The first question can take up to a minute while the demo starts."));
     scrollTo(view.ex);
+    var streamed = "";
     App.api.ask({
       question: q, asker: sel.asker, target: sel.target,
       history: turns, documents: App.docs.selected(sel.target)
     }, {
       onStep: function (evt) { view.steps.step(evt); },
-      onDelta: function (t) { streamed += t; answerEl.innerHTML = '<p class="streaming">' + R.escapeHtml(streamed) + "</p>"; },
-      onReplace: function (t) { streamed = t; answerEl.innerHTML = '<p class="streaming">' + R.escapeHtml(streamed) + "</p>"; },
+      onDelta: function (t) { streamed += t; showStreaming(view.answerEl, streamed); },
+      onReplace: function (t) { streamed = t; showStreaming(view.answerEl, streamed); },
       onDone: function (data) { record.payload = data; finish(view, record); },
       onError: function (message) {
         record.error = message;
@@ -207,7 +271,9 @@
     }).then(settle, settle);
 
     function settle() {
-      if (record.payload || record.error) { exchanges.push(record); save(); }
+      pending = null;
+      if (record.payload || record.error) exchanges.push(record);
+      save();
       askedHere = true;
       setBusy(false);
       refresh();
@@ -227,14 +293,14 @@
   // Only answered turns with the division being asked count: a refusal or an
   // error holds nothing to refer back to, and another division's answer came
   // from documents this question won't search. An example question or an
-  // "Ask … instead" started a topic, so nothing before it counts. [n] markers are
-  // dropped because they number the old answer's sources, not the new passages.
+  // "Ask … instead" started a topic, whichever division it asked, so nothing
+  // before it counts. [n] markers are dropped because they number the old
+  // answer's sources, not the new passages.
   function history() {
     var target = App.selection().target, turns = [];
     for (var i = exchanges.length - 1; i >= 0 && turns.length < HISTORY_TURNS; i--) {
       var x = exchanges[i];
-      if (x.target !== target) continue;
-      if (x.payload && !x.payload.refused) {
+      if (x.target === target && x.payload && !x.payload.refused) {
         turns.unshift({ question: x.question, answer: clip(stripCitations(x.payload.answer), HISTORY_ANSWER_CHARS) });
       }
       if (x.standalone) break;
@@ -246,8 +312,11 @@
   // works as usual and just isn't there after a reload.
   function save() {
     try {
-      if (exchanges.length) sessionStorage.setItem(STORE_KEY, JSON.stringify({ exchanges: exchanges.slice(-STORE_EXCHANGES) }));
-      else sessionStorage.removeItem(STORE_KEY);
+      if (exchanges.length || pending) {
+        sessionStorage.setItem(STORE_KEY, JSON.stringify({ exchanges: exchanges.slice(-STORE_EXCHANGES), pending: pending }));
+      } else {
+        sessionStorage.removeItem(STORE_KEY);
+      }
     } catch (e) {
       // An older copy left behind would bring back a thread missing its latest answers.
       try { sessionStorage.removeItem(STORE_KEY); } catch (e2) { /* blocked: nothing was kept */ }
@@ -256,36 +325,50 @@
 
   function load() {
     try {
-      var saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || "null");
-      return saved && Array.isArray(saved.exchanges) ? saved.exchanges : [];
+      var saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || "null") || {};
+      return { exchanges: Array.isArray(saved.exchanges) ? saved.exchanges : [], pending: saved.pending || null };
     } catch (e) {
-      return [];
+      return { exchanges: [], pending: null };
     }
   }
 
-  // A stored exchange from an older page or a division that no longer exists is skipped.
+  // A stored question from an older page or a division that no longer exists is skipped.
+  function knownQuestion(x) {
+    return !!x && typeof x.question === "string" && x.question.trim().length >= 3 &&
+      has(App.state.byId, x.asker) && has(App.state.byId, x.target);
+  }
+
   function usable(x) {
-    if (!x || typeof x.question !== "string" || !has(App.state.byId, x.asker) || !has(App.state.byId, x.target)) return false;
+    if (!knownQuestion(x)) return false;
     if (x.payload) return typeof x.payload.answer === "string" && Array.isArray(x.payload.sources);
     return typeof x.error === "string";
   }
 
   function clearThread() {
     exchanges = [];
+    pending = null;
     recordFor = {};
     lastTarget = null;
     pendingDivider = null;
-    thread.innerHTML = "";
+    thread.textContent = "";
     App.sources.clear();
   }
 
   function restore() {
-    var saved = load().filter(usable);
-    if (!saved.length) return;
+    var saved = load(), records = saved.exchanges.filter(usable), p = saved.pending;
+    // A question still being answered when the page was reloaded comes back as a
+    // failed exchange with Try again, where it was asked.
+    if (knownQuestion(p)) {
+      records.push({
+        question: p.question, asker: p.asker, target: p.target,
+        prior: typeof p.prior === "string" ? p.prior : "", standalone: !!p.standalone, error: INTERRUPTED
+      });
+    }
+    if (!records.length) { save(); return; }
     // Drawn quietly: the live region would otherwise read the whole conversation out again.
     thread.setAttribute("aria-live", "off");
     try {
-      saved.forEach(function (x) {
+      records.forEach(function (x) {
         finish(addExchange(x), x);
         exchanges.push(x);
       });
@@ -296,13 +379,13 @@
     } finally {
       thread.setAttribute("aria-live", "polite");
     }
-    var last = saved[saved.length - 1], lastEx = thread.lastElementChild;
+    save();  // the interrupted question is now an ordinary exchange
+    var last = records[records.length - 1], lastEx = thread.lastElementChild;
     // app.js picks its default divisions right after init(); this runs once it
     // has, and puts the conversation's divisions back so a follow-up after a
     // reload goes to the same documents with its history.
     Promise.resolve().then(function () {
-      el("asker").value = last.asker;
-      App.setTarget(last.target);
+      selectDivisions(last.asker, last.target);
       scrollTo(lastEx, true);
     });
   }
@@ -326,19 +409,14 @@
     });
     el("ask-form").addEventListener("submit", function (e) { e.preventDefault(); ask(); });
 
-    hint = document.createElement("p");
-    hint.className = "hint followup-hint";
+    hint = node("p", "hint followup-hint");
     hint.id = "followup-hint";
     hint.hidden = true;
     question.insertAdjacentElement("afterend", hint);
     question.setAttribute("aria-describedby", "followup-hint");
 
-    newChatBtn = document.createElement("button");
-    newChatBtn.type = "button";
-    newChatBtn.className = "secondary new-chat";
-    newChatBtn.textContent = "New chat";
+    newChatBtn = button("secondary new-chat", "New chat", newChat);
     newChatBtn.hidden = true;
-    newChatBtn.addEventListener("click", newChat);
     el("ask-btn").insertAdjacentElement("afterend", newChatBtn);
 
     restore();
@@ -352,6 +430,11 @@
     showExamples: showExamples,
     history: history,
     // Shown in the thread when the demo can't start.
-    fail: function (message) { el("thread").innerHTML = '<div class="card error"><p>' + R.escapeHtml(message) + "</p></div>"; }
+    fail: function (message) {
+      var box = el("thread"), card = node("div", "card error");
+      card.appendChild(node("p", null, message));
+      box.textContent = "";
+      box.appendChild(card);
+    }
   };
 })();

@@ -64,7 +64,10 @@ FOLLOWING_FOR_TOP = 2
 HISTORY_TURNS = 3
 HISTORY_ANSWER_CHARS = 1500
 # The previous question is clipped so a long one can't push the follow-up past
-# the 512 tokens bge-small and the reranker read (the page caps questions at 500).
+# the 512 tokens bge-small and the reranker read: the follow-up comes after it in
+# the search text. 500 characters plus a follow-up of at most MAX_QUESTION_CHARS
+# (500 by default) is about 250 tokens of English; a forged 5,000-character
+# history question would otherwise fill the window on its own.
 HISTORY_QUESTION_CHARS = 500
 
 SYSTEM_PROMPT = """You answer questions for North Carolina Department of Transportation (NCDOT) staff.
@@ -168,8 +171,17 @@ def recent_turns(history: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
 
 
 def _clip(text: str, limit: int) -> str:
+    """The text in at most `limit` characters (plus " …" when cut), never an empty prefix.
+
+    It is cut after the last whole word when one ends near the limit; text with
+    no space there (a pasted URL or part number) is cut at the limit itself.
+    """
     text = " ".join(text.split())
-    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + " …"
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > limit * 0.8 else cut) + " …"
 
 
 def _history_text(history: Sequence[Dict[str, str]]) -> str:
@@ -374,6 +386,8 @@ class Answerer:
         other 6-foot rules. Prefixing only the latest question keeps the topic
         without letting older turns outweigh the new question. No model call
         rewrites the question, which keeps follow-ups as fast as first questions.
+        The previous question is clipped to HISTORY_QUESTION_CHARS so the
+        follow-up after it always stays inside the models' 512-token window.
         """
         turns = recent_turns(history)
         previous = _clip(turns[-1].get("question") or "", HISTORY_QUESTION_CHARS) if turns else ""

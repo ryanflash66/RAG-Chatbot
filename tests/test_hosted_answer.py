@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hosted"))
 
 from divrag import llm as llm_module  # noqa: E402
 from divrag.answer import (  # noqa: E402
-    HISTORY_ANSWER_CHARS, HISTORY_TURNS, NOT_FOUND, SUGGEST_CANDIDATES, Answerer, attach_sources, build_messages,
-    cited_numbers,
+    HISTORY_ANSWER_CHARS, HISTORY_QUESTION_CHARS, HISTORY_TURNS, NOT_FOUND, SUGGEST_CANDIDATES, Answerer,
+    attach_sources, build_messages, cited_numbers,
 )
 from divrag.config import load_settings  # noqa: E402
 from divrag.divisions import BY_ID  # noqa: E402
@@ -129,6 +129,18 @@ def test_a_follow_up_is_searched_with_only_the_previous_question_before_it():
 def test_a_long_previous_question_is_clipped_so_the_follow_up_still_gets_read():
     query = Answerer(None, None).search_query(FOLLOW_UP, [_turn("barrier " * 400)])
     assert query.endswith(FOLLOW_UP) and len(query) < 600
+
+
+def test_a_long_previous_question_without_spaces_is_cut_at_the_limit_not_dropped():
+    # A pasted URL or part number has no word boundary to cut at; the prefix is kept, cut hard.
+    query = Answerer(None, None).search_query(FOLLOW_UP, [_turn("x" * 5000)])
+    assert query == "x" * HISTORY_QUESTION_CHARS + " … " + FOLLOW_UP
+
+
+def test_a_long_earlier_answer_without_spaces_is_cut_at_the_limit_not_dropped():
+    _, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["wztc"], [_hit(40, source=TMP, division="wztc")],
+                             [_turn(BRIDGE, "y" * 3000)])
+    assert "Earlier answer: " + "y" * HISTORY_ANSWER_CHARS + " …\n" in user["content"]
 
 
 def test_prompt_shows_the_earlier_turns_before_the_passages_with_a_passages_only_rule():
