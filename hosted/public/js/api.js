@@ -6,10 +6,10 @@
 //
 // ask() reads POST api/ask/stream (server-sent events: step, delta, replace,
 // done, error) with fetch, as EventSource can't POST. It falls back to POST
-// api/ask only when the stream fails before any event arrives (an older server
-// without the endpoint, or a proxy that refuses streams): once an event has
-// arrived the server is answering, and asking again would spend a second
-// answer of the free model's daily quota.
+// api/ask only when the server answers that it has no stream (404 or 405, or a
+// reply that is neither a stream nor JSON). A stream that breaks, or a request
+// that fails on the way, is an error: the server may already be answering it,
+// and asking again would spend a second answer of the free model's daily quota.
 // Before onError, onStep gets {id: "error", status: "error", label: message},
 // so the steps block can stop showing "Working…".
 (function () {
@@ -97,8 +97,8 @@
     function fail(message) {
       if (settled) return;
       settled = true;
-      handlers.onStep({ id: "error", status: "error", label: message });
-      handlers.onError(message);
+      // The chat must hear the error even if the steps block throws on its error step.
+      try { handlers.onStep({ id: "error", status: "error", label: message }); } finally { handlers.onError(message); }
     }
     function onEvent(name, text) {
       if (settled) return;
@@ -112,10 +112,12 @@
       else if (name === "error") fail(data.error);
     }
     function fallback() { return askOnce(request, done, fail); }
-    // A failure before the first event falls back; after it, the answer is reported as cut off.
+    // Once the stream request may have reached the server it is never sent again to api/ask:
+    // the server could already be answering it, and a second copy would spend another model
+    // call and rate-limit slot. The visitor gets an error and the chat's Try again instead.
     function broken() {
       if (settled) return;
-      return events ? fail(CUT_OFF) : fallback();
+      return fail(events ? CUT_OFF : UNREACHABLE);
     }
 
     return post("api/ask/stream", request).then(function (res) {
@@ -150,7 +152,7 @@
         });
       }
       return read().catch(function () { stop(); return broken(); });
-    }, fallback).catch(function (e) {
+    }, function () { fail(UNREACHABLE); }).catch(function (e) {
       // Only a handler that threw gets here; the chat still has to hear the end of the answer.
       if (window.console) console.error(e);
       fail(UNREACHABLE);

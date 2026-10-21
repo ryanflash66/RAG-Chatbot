@@ -563,3 +563,49 @@ def test_stream_requests_get_the_same_checks_as_ask(api, monkeypatch):
     limited = _stream(client)
     assert limited.status_code == 429 and "error" in limited.json()
     assert retriever.divisions == ["utilities"]
+
+
+def test_stream_events_reach_the_client_before_the_model_has_finished(api):
+    # TestClient hands over a streamed response only once it is complete, so the event
+    # generator is read directly: the steps and the first words must come out while the
+    # model is still held back, not all at once when it finishes.
+    _, _, llm = api
+    gate = asyncio.Event()
+
+    class _Held:
+        model, text = "test/model:free", ""
+
+        def __aiter__(self):
+            return self._pieces()
+
+        async def _pieces(self):
+            yield "Within 5 feet of the travel lane "
+            await gate.wait()
+            yield "on an undivided facility [1]."
+            self.text = "Within 5 feet of the travel lane on an undivided facility [1]."
+
+    llm.complete_stream = lambda messages, models=None: _Held()
+    question = hosted.Question("When is a lane closure required?", hosted.BY_ID["wztc"], hosted.BY_ID["utilities"], None, [])
+
+    async def run():
+        seen = []
+
+        async def read():
+            async for chunk in hosted._events(question, time.monotonic()):
+                seen.append(chunk)
+
+        reader = asyncio.create_task(read())
+        for _ in range(500):
+            if any(c.startswith("event: delta") for c in seen):
+                break
+            await asyncio.sleep(0.01)
+        before = list(seen)
+        gate.set()
+        await asyncio.wait_for(reader, 10)
+        return before, seen
+
+    before, seen = asyncio.run(run())
+    assert any(c.startswith("event: step") for c in before)
+    assert any(c.startswith("event: delta") for c in before)
+    assert not any(c.startswith("event: done") for c in before)
+    assert seen[-1].startswith("event: done")

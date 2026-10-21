@@ -17,21 +17,27 @@
   // "nvidia/nemotron-3-ultra-550b-a55b:free" -> "nemotron-3-ultra-550b-a55b"; the full id is the tooltip.
   function modelName(id) { return String(id).replace(/^[^/]*\//, "").replace(/:free$/, ""); }
 
+  // el("span", {class: "x"}, ["text", node]): built with DOM calls, so step labels and
+  // model names from the server are only ever text.
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, attrs[k]); });
+    (children || []).forEach(function (c) { node.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return node;
+  }
+
   function create(container) {
     var listId = "steps-" + (++blocks);
-    container.innerHTML =
-      '<div class="steps-block" data-state="running">' +
-        '<button type="button" class="steps-head" aria-expanded="true" aria-controls="' + listId + '">' +
-          '<span class="steps-icon" aria-hidden="true"></span>' +
-          '<span class="steps-title">Working…</span>' +
-          '<span class="steps-chevron" aria-hidden="true"></span>' +
-          '<span class="steps-meta"></span>' +
-        "</button>" +
-        '<ol class="steps-list" id="' + listId + '"></ol>' +
-      "</div>";
-    var block = container.firstChild;
-    var head = block.querySelector(".steps-head"), list = block.querySelector(".steps-list");
-    var title = block.querySelector(".steps-title"), meta = block.querySelector(".steps-meta");
+    var title = el("span", { "class": "steps-title" }, ["Working…"]);
+    var meta = el("span", { "class": "steps-meta" });
+    var head = el("button", { type: "button", "class": "steps-head", "aria-expanded": "true", "aria-controls": listId }, [
+      el("span", { "class": "steps-icon", "aria-hidden": "true" }), title,
+      el("span", { "class": "steps-chevron", "aria-hidden": "true" }), meta
+    ]);
+    var list = el("ol", { "class": "steps-list", id: listId });
+    var block = el("div", { "class": "steps-block", "data-state": "running" }, [head, list]);
+    while (container.firstChild) container.removeChild(container.firstChild);
+    container.appendChild(block);
     var items = {}, toggled = false;
     // The reply around the steps also holds the streamed answer, inside the thread's
     // aria-live region: busy until the end, a screen reader reads the finished answer
@@ -52,10 +58,7 @@
     function item(id, label) {
       var li = items[id];
       if (!li) {
-        li = document.createElement("li");
-        li.className = "step";
-        li.setAttribute("data-step", id);
-        li.innerHTML = '<span class="step-label"></span><span class="step-ms"></span>';
+        li = el("li", { "class": "step", "data-step": id }, [el("span", { "class": "step-label" }), el("span", { "class": "step-ms" })]);
         list.appendChild(li);
         items[id] = li;
       }
@@ -102,10 +105,10 @@
         meta.title = tip;
       }
       if (payload.uncited) {
-        var flag = document.createElement("p");
-        flag.className = "uncited-flag";
-        flag.innerHTML = "<strong>No source cited.</strong> This answer doesn't point to a page of the documents, so check it there before relying on it.";
-        container.appendChild(flag);
+        container.appendChild(el("p", { "class": "uncited-flag" }, [
+          el("strong", {}, ["No source cited."]),
+          " This answer doesn't point to a page of the documents, so check it there before relying on it."
+        ]));
       }
       if (!toggled) setOpen(false);
       idle();

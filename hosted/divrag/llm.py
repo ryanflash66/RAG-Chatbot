@@ -196,6 +196,7 @@ class CompletionStream:
         self._models = models
         self.model = (list(models) if models else client.models)[0]
         self.text = ""
+        self._finished = False  # a finish reason ("stop", ...) arrived
 
     def __aiter__(self) -> AsyncIterator[str]:
         return self._pieces()
@@ -203,6 +204,7 @@ class CompletionStream:
     async def _pieces(self) -> AsyncIterator[str]:
         client = self._client
         written: List[str] = []
+        ended = False
         try:
             async with client._http() as http:
                 body = client._body(self._messages, self._models, stream=True)
@@ -213,6 +215,7 @@ class CompletionStream:
                         raise _status_error(response.status_code, response.text) or LLMError(UNAVAILABLE)
                     async for data in _sse_data(response.aiter_lines()):
                         if data == "[DONE]":
+                            ended = True
                             break
                         piece = self._read(data)
                         if piece:
@@ -221,6 +224,10 @@ class CompletionStream:
         except httpx.HTTPError as exc:
             log.warning("OpenRouter stream failed: %s", exc.__class__.__name__)
             raise LLMError(UNAVAILABLE, detail=str(exc)) from exc
+        # A connection closed cleanly mid-answer (by OpenRouter or a proxy) would otherwise
+        # pass for a finished answer: only [DONE] or a finish reason says the model was done.
+        if not (ended or self._finished):
+            raise LLMError(UNAVAILABLE, detail="stream closed before the answer finished")
         self.text = "".join(written).strip()
         if not self.text:
             raise LLMError(UNAVAILABLE, detail="empty answer")
@@ -247,6 +254,8 @@ class CompletionStream:
             raise LLMError(TOO_LONG, detail="answer cut off at max_tokens")
         if choice.get("finish_reason") == "error":
             raise LLMError(UNAVAILABLE, detail=f"stream ended with an error: {data[:300]}")
+        if choice.get("finish_reason"):
+            self._finished = True
         delta = choice.get("delta")
         # The answer's content only: reasoning, if a provider sends it, is never shown.
         return (delta.get("content") or "") if isinstance(delta, dict) else ""

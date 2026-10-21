@@ -716,6 +716,8 @@ def test_stream_http_errors_become_the_same_friendly_errors_as_complete(response
     (_sse(_chunk("We need to", finish="length"), "[DONE]"), TOO_LONG),
     (_sse("[DONE]"), UNAVAILABLE),
     (_sse("not json"), UNAVAILABLE),
+    # Closed mid-answer, without [DONE] or a finish reason: not a complete answer.
+    (_sse(_chunk("The NC-PCB is 10 ft "), _chunk("long and")), UNAVAILABLE),
 ])
 def test_cut_off_empty_or_garbled_streams_are_errors(body, message):
     with pytest.raises(LLMError) as caught:
