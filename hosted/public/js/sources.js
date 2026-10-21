@@ -4,11 +4,12 @@
 //   show(sources, answerId)  an answer is complete; its sources become the panel's
 //   cite(answerId, n)        what clicking [n] in that answer does
 //   clear()                  empty the panel; stored answers stay, so their citations still work
+// The panel is built with DOM calls and textContent, never HTML strings, so document
+// titles, sections and excerpts can't inject markup whatever they contain.
 (function () {
   "use strict";
   var App = window.App = window.App || {};
-  var R = App.render;
-  var EMPTY = '<p class="empty">The passages an answer uses appear here, with a link to each PDF page.</p>';
+  var EMPTY = "The passages an answer uses appear here, with a link to each PDF page.";
   // Excerpts run up to 700 characters (EXCERPT_CHARS in divrag/answer.py). Longer than this
   // they are clamped to five lines with a Show more toggle. 240 characters is about five lines
   // of the 300-360 px panel, so a shorter excerpt is never cut off without a toggle to open it.
@@ -17,6 +18,25 @@
   var byAnswer = Object.create(null);   // answerId -> {sources, question}
   var active = null, panel, box, flashed = null, flashTimer = 0;
   var returnTo = null;   // the citation that opened the drawer, focused again when it closes
+
+  // make("p", {class: "x"}, ["text", node]): an element with attributes and children;
+  // strings become text nodes and null children are skipped.
+  function make(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (name) { node.setAttribute(name, attrs[name]); });
+    (children || []).forEach(function (child) {
+      if (child === null || child === undefined || child === "") return;
+      node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
+    });
+    return node;
+  }
+
+  function setPanel(nodes) {
+    while (box.firstChild) box.removeChild(box.firstChild);
+    nodes.forEach(function (node) { box.appendChild(node); });
+  }
+
+  function emptyNote(text) { return make("p", { "class": "empty" }, [text]); }
 
   function reducedMotion() {
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -52,36 +72,39 @@
     });
   }
 
-  function itemHtml(s) {
-    var n = Number(s.n), text = s.excerpt || "", long = text.length > CLAMP_CHARS;
+  function srOnly(text) { return make("span", { "class": "src-sr" }, [text]); }
+
+  function itemNode(s) {
+    var n = Number(s.n), text = s.excerpt ? String(s.excerpt) : "", long = text.length > CLAMP_CHARS;
     var textId = "src-" + n + "-text";
     var meta = [];
-    if (s.page) {
-      meta.push(s.page_end && s.page_end !== s.page
-        ? "PDF pages " + R.escapeHtml(s.page) + "–" + R.escapeHtml(s.page_end)
-        : "PDF page " + R.escapeHtml(s.page));
-    }
-    if (s.section) meta.push("Section " + R.escapeHtml(s.section));
-    var actions = "";
+    if (s.page) meta.push(s.page_end && s.page_end !== s.page ? "PDF pages " + s.page + "–" + s.page_end : "PDF page " + s.page);
+    if (s.section) meta.push("Section " + s.section);
+    var actions = [];
     if (long) {
-      actions += '<button type="button" class="src-more" aria-expanded="false" aria-controls="' + textId + '">Show more</button>';
+      actions.push(make("button", { type: "button", "class": "src-more", "aria-expanded": "false", "aria-controls": textId }, ["Show more"]));
     }
-    if (s.url) {
+    // Only http(s) links: the manuals are public NCDOT PDFs (divrag/divisions.py), and this
+    // keeps a javascript: or data: URL from ever becoming a clickable link.
+    if (/^https?:\/\//i.test(s.url || "")) {
       // url ends in #page=N when the page is known. Identical link texts get a hidden
       // source number so a screen reader's list of links tells them apart.
-      actions += '<a class="src-link" href="' + R.escapeHtml(s.url) + '" target="_blank" rel="noopener">' +
-        (s.page ? "Open the PDF at this page" : "Open the PDF") +
-        '<span class="src-sr"> (source ' + n + ", opens in a new tab)</span></a>";
+      actions.push(make("a", { "class": "src-link", href: String(s.url), target: "_blank", rel: "noopener" }, [
+        s.page ? "Open the PDF at this page" : "Open the PDF",
+        srOnly(" (source " + n + ", opens in a new tab)")
+      ]));
     }
     // tabindex=-1: a clicked citation moves focus here, so a screen reader reads the passage.
     // The clamp is on the inner <p>: on the padded box, the sixth line would show in the padding.
-    return '<li class="src" id="src-' + n + '" data-n="' + n + '" tabindex="-1">' +
-      '<div class="src-head"><span class="src-n"><span class="src-sr">Source </span>' + n + "</span>" +
-      '<span class="src-title">' + R.escapeHtml(s.title) + "</span></div>" +
-      (meta.length ? '<div class="src-meta">' + meta.join(" · ") + "</div>" : "") +
-      (text ? '<div class="src-text"><p' + (long ? ' class="clamped"' : "") + ' id="' + textId + '">' + R.escapeHtml(text) + "</p></div>" : "") +
-      (actions ? '<div class="src-actions">' + actions + "</div>" : "") +
-      "</li>";
+    return make("li", { "class": "src", id: "src-" + n, "data-n": String(n), tabindex: "-1" }, [
+      make("div", { "class": "src-head" }, [
+        make("span", { "class": "src-n" }, [srOnly("Source "), String(n)]),
+        make("span", { "class": "src-title" }, [String(s.title || "")])
+      ]),
+      meta.length ? make("div", { "class": "src-meta" }, [meta.join(" · ")]) : null,
+      text ? make("div", { "class": "src-text" }, [make("p", long ? { "class": "clamped", id: textId } : { id: textId }, [text])]) : null,
+      actions.length ? make("div", { "class": "src-actions" }, actions) : null
+    ]);
   }
 
   function render(answerId) {
@@ -89,20 +112,20 @@
     active = answerId;
     markActive();
     panel.scrollTop = 0;
-    if (!entry) { box.innerHTML = EMPTY; return; }
+    if (!entry) { setPanel([emptyNote(EMPTY)]); return; }
     var sources = entry.sources, question = entry.question || questionFor(answerId);
     var label = !sources.length ? "No passages were used to answer"
       : sources.length === 1 ? "1 passage used to answer" : sources.length + " passages used to answer";
-    var html = question
-      ? '<p class="src-for">' + label + ' <span class="src-q">' + R.escapeHtml(question) + "</span></p>"
-      : (sources.length ? "" : '<p class="empty">This answer has no sources.</p>');
+    var nodes = [];
+    if (question) nodes.push(make("p", { "class": "src-for" }, [label + " ", make("span", { "class": "src-q" }, [question])]));
+    else if (!sources.length) nodes.push(emptyNote("This answer has no sources."));
     if (sources.length) {
-      html += '<ol class="sources">' + sources.map(itemHtml).join("") + "</ol>";
+      nodes.push(make("ol", { "class": "sources" }, sources.map(itemNode)));
       if (sources.some(function (s) { return /#page=\d+$/.test(s.url || ""); })) {
-        html += '<p class="src-note">Safari may open the PDF at page 1. If it does, go to the page shown above.</p>';
+        nodes.push(make("p", { "class": "src-note" }, ["Safari may open the PDF at page 1. If it does, go to the page shown above."]));
       }
     }
-    box.innerHTML = html;
+    setPanel(nodes);
   }
 
   // Scroll the panel itself, not the page: scrollIntoView would also move the window
@@ -186,7 +209,7 @@
     init: function () {
       panel = document.getElementById("sources-panel");
       box = document.getElementById("sources");
-      box.innerHTML = EMPTY;
+      setPanel([emptyNote(EMPTY)]);
       document.addEventListener("click", onCitationClick);
       box.addEventListener("click", onToggleClick);
       if (window.MutationObserver) {
@@ -199,6 +222,6 @@
       render(answerId);
     },
     cite: cite,
-    clear: function () { active = null; markActive(); box.innerHTML = EMPTY; }
+    clear: function () { active = null; markActive(); setPanel([emptyNote(EMPTY)]); }
   };
 })();
