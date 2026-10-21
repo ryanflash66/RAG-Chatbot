@@ -12,7 +12,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hosted"))
 
 from divrag import llm as llm_module  # noqa: E402
-from divrag.answer import NOT_FOUND, SUGGEST_CANDIDATES, Answerer, attach_sources, build_messages, cited_numbers  # noqa: E402
+from divrag.answer import (  # noqa: E402
+    HISTORY_ANSWER_CHARS, HISTORY_QUESTION_CHARS, HISTORY_TURNS, NOT_FOUND, SUGGEST_CANDIDATES, Answerer,
+    attach_sources, build_messages, cited_numbers,
+)
 from divrag.config import load_settings  # noqa: E402
 from divrag.divisions import BY_ID  # noqa: E402
 from divrag.index_file import Hit  # noqa: E402
@@ -101,6 +104,98 @@ def test_prompt_frames_the_asker_but_contains_only_the_targets_passages():
     assert "When is a lane closure needed?" in user["content"]
 
 
+BRIDGE = "When must portable concrete barrier on a bridge deck be anchored?"
+FOLLOW_UP = "What if it is more than 6 feet from the edge?"
+
+
+def _turn(question, answer="An answer [1]."):
+    return {"question": question, "answer": answer}
+
+
+def test_search_query_is_the_question_alone_without_history():
+    assert Answerer(None, None).search_query(BRIDGE) == BRIDGE
+    assert Answerer(None, None).search_query(BRIDGE, []) == BRIDGE
+
+
+def test_a_follow_up_is_searched_with_only_the_previous_question_before_it():
+    history = [_turn("Who pays for a detour?"), _turn(BRIDGE)]
+
+    query = Answerer(None, None).search_query(FOLLOW_UP, history)
+
+    assert query == f"{BRIDGE} {FOLLOW_UP}"
+    assert "detour" not in query  # older turns don't steer the search
+
+
+def test_a_long_previous_question_is_clipped_so_the_follow_up_still_gets_read():
+    query = Answerer(None, None).search_query(FOLLOW_UP, [_turn("barrier " * 400)])
+    assert query.endswith(FOLLOW_UP) and len(query) < 600
+
+
+def test_a_long_previous_question_without_spaces_is_cut_at_the_limit_not_dropped():
+    # A pasted URL or part number has no word boundary to cut at; the prefix is kept, cut hard.
+    query = Answerer(None, None).search_query(FOLLOW_UP, [_turn("x" * 5000)])
+    assert query == "x" * HISTORY_QUESTION_CHARS + " … " + FOLLOW_UP
+
+
+def test_a_long_earlier_answer_without_spaces_is_cut_at_the_limit_not_dropped():
+    _, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["wztc"], [_hit(40, source=TMP, division="wztc")],
+                             [_turn(BRIDGE, "y" * 3000)])
+    assert "Earlier answer: " + "y" * HISTORY_ANSWER_CHARS + " …\n" in user["content"]
+
+
+def test_prompt_shows_the_earlier_turns_before_the_passages_with_a_passages_only_rule():
+    hits = [_hit(40, "Anchor the barrier when it is within 6 feet of the deck edge.", source=TMP, division="wztc")]
+    history = [_turn(BRIDGE, "When it is within 6 feet of the deck edge [1]. It must be pinned [2][3].")]
+
+    system, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["wztc"], hits, history)
+
+    content = user["content"]
+    assert content.index("Earlier conversation") < content.index("Earlier question: " + BRIDGE) < content.index("[1] (")
+    assert "Earlier answer: When it is within 6 feet of the deck edge. It must be pinned." in content
+    assert content.rstrip().endswith("Question: " + FOLLOW_UP)
+    # The old answer's [n] numbered other passages; only the new passages are numbered.
+    assert content.count("[1]") == 1 and "[2]" not in content
+    # Every existing rule stays, plus one saying the earlier turns are not a source.
+    assert "1. Use only the numbered passages." in system["content"]
+    assert f"reply with exactly {NOT_FOUND} and nothing else" in system["content"]
+    assert "8. The earlier conversation" in system["content"]
+    assert "It is not a source: take every fact from the numbered passages" in system["content"]
+    assert f"reply with exactly {NOT_FOUND}, even if the earlier conversation did" in system["content"]
+
+
+def test_a_question_carried_over_from_another_division_is_shown_without_an_answer():
+    # "Ask Utilities instead" on a refused follow-up sends the previous question with no answer.
+    hits = [_hit(126, "Lane closure within 5 feet.")]
+
+    _, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["utilities"], hits, [_turn(BRIDGE, "")])
+
+    assert "Earlier question: " + BRIDGE in user["content"]
+    assert "Earlier answer" not in user["content"]
+    assert Answerer(None, None).search_query(FOLLOW_UP, [_turn(BRIDGE, "")]) == f"{BRIDGE} {FOLLOW_UP}"
+
+
+def test_a_first_question_gets_the_prompt_without_any_history_part():
+    hits = [_hit(126, "Lane closure within 5 feet.")]
+
+    system, user = build_messages("When is a lane closure needed?", BY_ID["wztc"], BY_ID["utilities"], hits, [])
+
+    assert "earlier conversation" not in system["content"].lower()
+    assert user["content"].startswith("Passages from the Utilities division's documents:")
+
+
+def test_only_the_last_three_turns_reach_the_prompt_and_long_answers_are_clipped():
+    history = [_turn(f"Question number {n}?", f"Answer number {n} [1].") for n in range(1, 7)]
+    history[-1]["answer"] = "word " * 1000
+
+    _, user = build_messages(FOLLOW_UP, BY_ID["wztc"], BY_ID["wztc"], [_hit(40, source=TMP, division="wztc")], history)
+
+    content = user["content"]
+    assert HISTORY_TURNS == 3
+    assert [n for n in range(1, 7) if f"Question number {n}?" in content] == [4, 5, 6]
+    last_answer = content.split("Earlier answer: ")[-1].split("\n\n")[0]
+    assert len(last_answer) <= HISTORY_ANSWER_CHARS + 2 and last_answer.endswith(" …")
+
+
 class _FakeLLM:
     """Replies with `text`; a list of texts is replayed one per call (the last repeats)."""
 
@@ -129,12 +224,20 @@ class _FakeRetriever:
         self.reranker = object() if reranker else None
         self.searched = []
         self.candidates = []
+        self.questions = []
 
     def retrieve(self, question, division, k=5, timer=None, candidates=None, sources=None):
         self.searched.append(division)
         self.candidates.append(candidates)
+        self.questions.append(question)
         source = TMP if division == "wztc" else UAM
         return [_hit(10, source=source, division=division, score=self.scores[division])]
+
+    def with_following(self, hits, top=2):
+        return hits
+
+    def as_passages(self, hits):
+        return hits
 
 
 def _answer(llm_text, scores=None, target="utilities"):
@@ -195,6 +298,23 @@ def test_refusal_despite_strong_retrieval_is_retried_once_with_the_next_model(fi
     assert result.model == "test/second:free"
     assert llm.models_used == [None, ["test/second:free"]]
     assert llm.calls[0] == llm.calls[1]  # same prompt, different model
+
+
+def test_a_follow_up_is_retrieved_answered_retried_and_suggested_with_its_history():
+    retriever = _FakeRetriever({"wztc": -9.0, "utilities": 3.5})
+    llm = _FakeLLM([NOT_FOUND, NOT_FOUND])
+    answerer = Answerer(retriever, llm)
+    history = [_turn("Who pays for a detour?"), _turn(BRIDGE, "Within 6 feet of the edge [1].")]
+
+    hits = answerer.retrieve(FOLLOW_UP, BY_ID["utilities"], history=history)
+    result = asyncio.run(answerer.answer(FOLLOW_UP, BY_ID["utilities"], BY_ID["utilities"], hits, time.monotonic() + 40,
+                                         history=history))
+
+    assert retriever.questions[0] == f"{BRIDGE} {FOLLOW_UP}"
+    assert result.refused and result.retried
+    assert len(llm.calls) == 2 and llm.calls[0] == llm.calls[1]  # the retry reuses the prompt, history included
+    assert "Earlier question: " + BRIDGE in llm.calls[1][1]["content"]
+    assert retriever.questions[1:] == [f"{BRIDGE} {FOLLOW_UP}"]  # the other division is checked on the same topic
 
 
 class _SlowLLM(_FakeLLM):

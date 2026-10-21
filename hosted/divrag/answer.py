@@ -15,6 +15,11 @@ suggests asking that division instead.
 
 The asker's own division only shapes the wording (who the answer is for); its
 documents are never searched.
+
+A follow-up question comes with the conversation so far (the page keeps it):
+the search runs on the previous question plus the follow-up, and the prompt
+shows the last turns only to explain what the question refers to. Facts and
+citations still come from the new passages alone.
 """
 
 import asyncio
@@ -51,6 +56,19 @@ RETRY_MARGIN_SECONDS = 1.0
 EXCERPT_CHARS = 700
 # The best hits also bring the next chunk of their document (see Retriever.with_following).
 FOLLOWING_FOR_TOP = 2
+# Follow-ups (DAR-619) are understood without an extra model call: the search
+# runs on the previous question plus the follow-up, and the prompt carries the
+# last few turns. The page sends at most this many already; the server keeps
+# only these too, whatever arrives. Earlier answers are clipped because they
+# only say what "it" or "that" refers to; the facts come from the new passages.
+HISTORY_TURNS = 3
+HISTORY_ANSWER_CHARS = 1500
+# The previous question is clipped so a long one can't push the follow-up past
+# the 512 tokens bge-small and the reranker read: the follow-up comes after it in
+# the search text. 500 characters plus a follow-up of at most MAX_QUESTION_CHARS
+# (500 by default) is about 250 tokens of English; a forged 5,000-character
+# history question would otherwise fill the window on its own.
+HISTORY_QUESTION_CHARS = 500
 
 SYSTEM_PROMPT = """You answer questions for North Carolina Department of Transportation (NCDOT) staff.
 You are answering on behalf of the {target_name} division ({target_unit}), using only numbered passages from its documents.
@@ -65,11 +83,22 @@ Rules:
 6. Start with the direct answer. Keep it short: one to four sentences, or a short list when there are several requirements. Use plain language.
 7. Don't mention "passages" or "context"; refer to the document by name if needed."""
 
-USER_PROMPT = """Passages from the {target_name} division's documents:
+# Added to the rules only when the question comes with earlier turns, so a first
+# question gets exactly the prompt the known-page checks were run with.
+HISTORY_RULE = """
+8. The earlier conversation, when shown, is only there to understand what the question refers to (for example "it" or "that barrier"). It is not a source: take every fact from the numbered passages and cite them, never from the earlier answers. If the passages do not answer the question, reply with exactly {not_found}, even if the earlier conversation did."""
+
+USER_PROMPT = """{history}Passages from the {target_name} division's documents:
 
 {context}
 
 Question: {question}"""
+
+HISTORY_PROMPT = """Earlier conversation, oldest first (only to understand what the question refers to; not a source):
+
+{turns}
+
+"""
 
 # One bracketed citation: "[1]", "[1, 2]", "[1; 2]", "[1-3]", "[1–3]", and the
 # lenticular/full-width brackets some models use: "【2】", "［2］".
@@ -136,12 +165,49 @@ def _pages(chunk: Dict) -> str:
     return f"PDF page {chunk['page']}"
 
 
+def recent_turns(history: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
+    """The last HISTORY_TURNS turns of the conversation, oldest first."""
+    return list(history)[-HISTORY_TURNS:]
+
+
+def _clip(text: str, limit: int) -> str:
+    """The text in at most `limit` characters (plus " …" when cut), never an empty prefix.
+
+    It is cut after the last whole word when one ends near the limit; text with
+    no space there (a pasted URL or part number) is cut at the limit itself.
+    """
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > limit * 0.8 else cut) + " …"
+
+
+def _history_text(history: Sequence[Dict[str, str]]) -> str:
+    """The earlier turns for the user message; empty when there are none.
+
+    Their [n] markers are removed: they numbered the earlier answer's passages,
+    and left in they would read as citations of this question's passages. A turn
+    with an empty answer is a question asked of another division, which the page
+    sends when one of its "Ask … instead" buttons is used; only its question is shown.
+    """
+    turns = []
+    for turn in recent_turns(history):
+        text = f"Earlier question: {_clip(turn.get('question') or '', HISTORY_QUESTION_CHARS)}"
+        answer = _CITATION.sub("", _EMPTY_CITATION.sub("", turn.get("answer") or ""))
+        answer = _clip(re.sub(r"[ \t]+([.,;:])", r"\1", answer), HISTORY_ANSWER_CHARS)
+        turns.append(f"{text}\nEarlier answer: {answer}" if answer else text)
+    return HISTORY_PROMPT.format(turns="\n\n".join(turns)) if turns else ""
+
+
 def build_messages(question: str, asker: Division, target: Division, hits: List[Hit],
                    history: Sequence[Dict[str, str]] = ()) -> List[Dict[str, str]]:
     """The system and user messages for one question.
 
     `history` is the conversation so far ([{"question", "answer"}], oldest
-    first); DAR-619 adds it to the prompt.
+    first). Its last HISTORY_TURNS turns go before the passages, with a rule
+    that they only explain what the question refers to.
     """
     if asker.id == target.id:
         asker_line = f"The person asking also works in {target.name}."
@@ -150,11 +216,14 @@ def build_messages(question: str, asker: Division, target: Division, hits: List[
             f"The person asking works in a different division, {asker.name} ({asker.unit}), and may not know "
             f"{target.name}'s terms; explain them briefly only where the passages do."
         )
+    earlier = _history_text(history)
     system = SYSTEM_PROMPT.format(
         target_name=target.name, target_unit=target.unit, asker_line=asker_line, not_found=NOT_FOUND
     )
+    if earlier:
+        system += HISTORY_RULE.format(not_found=NOT_FOUND)
     context = "\n\n---\n\n".join(f"[{n}] ({_locator(hit)})\n{hit.chunk['text']}" for n, hit in enumerate(hits, 1))
-    user = USER_PROMPT.format(target_name=target.name, context=context, question=question)
+    user = USER_PROMPT.format(history=earlier, target_name=target.name, context=context, question=question)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
@@ -310,8 +379,19 @@ class Answerer:
         self.retry_min_seconds = retry_min_seconds
 
     def search_query(self, question: str, history: Sequence[Dict[str, str]] = ()) -> str:
-        """The text to search with. DAR-619 combines a follow-up with the previous question."""
-        return question
+        """The text to search with: the previous question plus this one when there is history.
+
+        A follow-up such as "What if it is more than 6 feet from the edge?" says
+        nothing about bridge-deck barrier on its own, so searched alone it finds
+        other 6-foot rules. Prefixing only the latest question keeps the topic
+        without letting older turns outweigh the new question. No model call
+        rewrites the question, which keeps follow-ups as fast as first questions.
+        The previous question is clipped to HISTORY_QUESTION_CHARS so the
+        follow-up after it always stays inside the models' 512-token window.
+        """
+        turns = recent_turns(history)
+        previous = _clip(turns[-1].get("question") or "", HISTORY_QUESTION_CHARS) if turns else ""
+        return f"{previous} {question}" if previous else question
 
     def retrieve(self, question: str, target: Division, timer: Optional[StepTimer] = None,
                  documents: Optional[Sequence[str]] = None, history: Sequence[Dict[str, str]] = ()) -> List[Hit]:
@@ -387,7 +467,8 @@ class Answerer:
                 completion, text, sources = second
         if not sources:
             with timed(timer, "suggest"):
-                suggest = await asyncio.to_thread(self.suggest_divisions, question, target)
+                # The same text the question was searched with, so a refused follow-up is matched on its topic.
+                suggest = await asyncio.to_thread(self.suggest_divisions, self.search_query(question, history), target)
             return Answer(refusal_text(target, suggest), refused=True, model=completion.model, suggest=suggest,
                           retried=retried, first_model=first_model)
         return Answer(text, refused=False, sources=sources, model=completion.model, retried=retried, first_model=first_model)
