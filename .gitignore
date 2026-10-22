@@ -240,3 +240,7 @@ eval/.chroma/
 
 # Prototype indexes built by `py -m prototype.ingest` (rebuild from data/)
 prototype/index/
+
+# The React page (hosted/web) is built on Vercel into hosted/public/new/ (DAR-630)
+node_modules/
+hosted/public/new/

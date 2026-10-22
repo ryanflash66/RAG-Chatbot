@@ -211,6 +211,17 @@ Run it locally (needs `OPENROUTER_API_KEY` in `.env`):
 
 Then open http://localhost:8000. The first question downloads the two ONNX models (about 90 MB) into the system temp directory, unless `hosted/models/` exists (`.venv\Scripts\python hosted/scripts/fetch_models.py` fills it) or `MODEL_CACHE_DIR` points at a copy. `hosted/RESULTS-local.md` has the results of real questions against the local app.
 
+### The React page (`/new`, in progress)
+
+The page is moving to React with [assistant-ui](https://www.assistant-ui.com/) (DAR-630 to DAR-634). Until the swap, the new page lives in `hosted/web/` (Vite, React, TypeScript, Tailwind v4, shadcn/ui) and is served at `/new/`, beside the current page at `/`. It's built into `hosted/public/new/`, which is gitignored; Vercel builds it on every deploy.
+
+```bash
+cd hosted/web
+npm ci
+npm run build    # writes hosted/public/new/; then open http://localhost:8000/new/ on the running app
+npm run dev      # or a live-reloading copy on http://localhost:5173/new/, calling the app on :8000 for /api
+```
+
 ### Deploying on Vercel
 
 Live demo: https://ncdot-division-assistant.vercel.app (Vercel project `ncdot-division-assistant`, connected to this GitHub repo; pushes to `main` deploy to production, other branches get preview deployments behind Vercel login).
