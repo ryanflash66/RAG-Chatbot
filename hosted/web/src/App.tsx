@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DocsPanel } from "@/panels/DocsPanel";
 import { SourcesPanel } from "@/panels/SourcesPanel";
-import { placeholderAdapter } from "@/runtime/placeholder";
+import { answerAdapter } from "@/runtime/adapter";
 import { useApp } from "@/state";
 
 // The same breakpoint as the old page (public/css/base.css): narrower than this, the
@@ -26,7 +26,7 @@ function useMedia(query: string): boolean {
 }
 
 export default function App() {
-  const runtime = useLocalRuntime(placeholderAdapter);
+  const runtime = useLocalRuntime(answerAdapter);
   const wide = useMedia(WIDE);
   const { drawer, setDrawer, setDivisions } = useApp();
   const [loadError, setLoadError] = useState(false);
