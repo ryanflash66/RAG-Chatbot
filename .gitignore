@@ -244,3 +244,5 @@ prototype/index/
 # The React page (hosted/web) is built on Vercel into hosted/public/new/ (DAR-630)
 node_modules/
 hosted/public/new/
+# ...but not the React app's src/lib/ (shadcn's cn helper), which the Python "lib/" rule above would hide
+!hosted/web/src/lib/
