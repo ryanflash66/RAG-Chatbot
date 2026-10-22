@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 type MarkdownTextProps = Partial<TextMessagePartProps> & {
   components?: Parameters<typeof memoizeMarkdownComponents>[0];
   componentsByLanguage?: MarkdownTextPrimitiveProps["componentsByLanguage"];
+  preprocess?: MarkdownTextPrimitiveProps["preprocess"];
 };
 
 const useShallowStable = <T extends Record<string, unknown> | undefined>(
@@ -42,6 +43,7 @@ const useShallowStable = <T extends Record<string, unknown> | undefined>(
 const MarkdownTextImpl: FC<MarkdownTextProps> = ({
   components,
   componentsByLanguage,
+  preprocess,
 }) => {
   const stableComponents = useShallowStable(components);
   const stableComponentsByLanguage = useShallowStable(componentsByLanguage);
@@ -59,6 +61,7 @@ const MarkdownTextImpl: FC<MarkdownTextProps> = ({
       className="aui-md"
       components={markdownComponents}
       componentsByLanguage={stableComponentsByLanguage}
+      {...(preprocess && { preprocess })}
       defer
     />
   );
