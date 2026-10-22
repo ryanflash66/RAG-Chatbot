@@ -12,6 +12,8 @@ type AppState = {
   unticked: Record<string, Record<string, true>>;
   /** The answer whose sources the right panel shows (its message id). */
   activeAnswerId: string | null;
+  /** When activeAnswerId was set (Date.now()): an answer started after that takes the panel back. */
+  activeAt: number;
   /** A clicked [n] citation: the right panel scrolls to and highlights that passage. */
   focusedSource: { answerId: string; n: number } | null;
   /** The side panel open as a drawer on a narrow screen. */
@@ -37,6 +39,7 @@ export const useApp = create<AppState>((set, get) => ({
   target: null,
   unticked: {},
   activeAnswerId: null,
+  activeAt: 0,
   focusedSource: null,
   drawer: null,
 
@@ -61,8 +64,9 @@ export const useApp = create<AppState>((set, get) => ({
     else return; // a question has to search something, so the last ticked document stays ticked
     set({ unticked: { ...unticked, [divisionId]: off } });
   },
-  showAnswer: (answerId) => set({ activeAnswerId: answerId }),
-  focusSource: (answerId, n) => set({ activeAnswerId: answerId, focusedSource: { answerId, n } }),
+  showAnswer: (answerId) => set({ activeAnswerId: answerId, activeAt: Date.now() }),
+  focusSource: (answerId, n) =>
+    set({ activeAnswerId: answerId, activeAt: Date.now(), focusedSource: { answerId, n } }),
   setDrawer: (drawer) => set({ drawer }),
 }));
 
