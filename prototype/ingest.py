@@ -1,6 +1,6 @@
 """Build the hosted demo's index offline from each division's documents.
 
-    py -m prototype.ingest [--division ID ...] [--out hosted/index] [--compare]
+    py -m prototype.ingest [--division ID ...] [--out hosted/index] [--compare] [--timings FILE]
 
 The divisions and their documents come from hosted/divrag/divisions.py; each
 document is read from hosted/documents/<division id>/<file> (where
@@ -19,6 +19,7 @@ similarity between the two models' vectors.
 """
 
 import argparse
+import json
 import re
 import sys
 import time
@@ -101,7 +102,15 @@ def document_root(config: AppConfig, division: Division, document: Document,
 
 
 def build_division(config: AppConfig, division: Division, chunk_size: int, chunk_overlap: int,
-                   documents_dir: Path = DOCUMENTS_DIR) -> List[Dict]:
+                   documents_dir: Path = DOCUMENTS_DIR, stats: Optional[List[Dict]] = None) -> List[Dict]:
+    """The division's chunks, its documents in divisions.py order.
+
+    Each document is read and split on its own, so `stats` (when given) gets one
+    row per document with its read-and-split time: at 50+ documents the build
+    time is dominated by a few long or drawing-heavy PDFs, and a per-division
+    total hides which ones (docs/stress-test-50-documents.md). Splitting one
+    document at a time gives the same chunks, as the splitter works page by page.
+    """
     roots = {d.file: document_root(config, division, d, documents_dir) for d in division.documents}
     missing = [file for file, root in roots.items() if root is None]
     if missing:
@@ -109,39 +118,95 @@ def build_division(config: AppConfig, division: Division, chunk_size: int, chunk
             f"Division {division.id}: missing {missing} in {documents_dir / division.id} or {config.data_dir} "
             f"(run `python hosted/scripts/fetch_documents.py --division {division.id}`)"
         )
-    documents = []
-    for root in dict.fromkeys(roots.values()):
-        documents += loader.load(root, only=[root / file for file, r in roots.items() if r == root])
     splitter = TableAwareSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    nodes = [n for n in splitter.get_nodes_from_documents(documents) if n.get_content().strip()]
     chunks: List[Dict] = []
-    for source in dict.fromkeys(n.metadata.get("source") for n in nodes):
-        of_source = [n for n in nodes if n.metadata.get("source") == source]
-        texts = [n.get_content().strip() for n in of_source]
-        for node, text, section in zip(of_source, texts, chunk_sections(texts)):
+    for document in division.documents:
+        root = roots[document.file]
+        started = time.perf_counter()
+        pages = loader.load(root, only=[root / document.file])
+        nodes = [n for n in splitter.get_nodes_from_documents(pages) if n.get_content().strip()]
+        texts = [n.get_content().strip() for n in nodes]
+        for node, text, section in zip(nodes, texts, chunk_sections(texts)):
             chunks.append({
                 "text": text,
-                "source": source,
+                "source": node.metadata.get("source"),
                 "page": _page(node.metadata),
                 "section": section,
                 "division": division.id,
             })
+        if stats is not None:
+            stats.append({
+                "division": division.id,
+                "source": document.file,
+                "seconds": time.perf_counter() - started,
+                "pdf_pages": _pdf_pages(root / document.file),
+                # The loader drops pages with no text, so a scanned page is missing here.
+                "pages_with_text": len({_page(p.metadata) for p in pages}),
+                "chunks": len(nodes),
+                "last_page": max((_page(n.metadata) or 0 for n in nodes), default=0),
+            })
     return chunks
 
 
+def _pdf_pages(path: Path) -> Optional[int]:
+    """The PDF's page count (None for other formats), to tell how many pages had no text."""
+    if path.suffix.lower() != ".pdf":
+        return None
+    import pymupdf  # installed with pymupdf4llm, which the loader reads PDFs with
+
+    with pymupdf.open(path) as pdf:
+        return pdf.page_count
+
+
+def text_warning(row: Dict) -> Optional[str]:
+    """Why a document's text may be missing from the index, or None.
+
+    The loader silently drops a page with no text layer, so a scanned PDF builds
+    with no chunks at all and still shows in the page's document list (the NCDOT
+    Work Zone Safety and Mobility Policy and the Revised Rumble Strip Guidelines,
+    both scanned, in the 50-document stress test). Drawing-heavy manuals lose
+    pages the same way (MUTCG Chapter 2: 26 of 48 pages had text).
+    """
+    if row["chunks"] == 0:
+        return "no text read: a scanned PDF? It has no passages, so it can never be cited"
+    total = row.get("pdf_pages")
+    if total and row["pages_with_text"] < 0.8 * total:
+        return f"only {row['pages_with_text']} of {total} pages have text (scanned pages or drawings?)"
+    return None
+
+
 def build(config: AppConfig, divisions: List[Division], embedder: Embedder,
-          chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP) -> IndexFile:
+          chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP,
+          timings: Optional[Dict] = None) -> IndexFile:
+    """The index of these divisions' documents.
+
+    `timings` (when given) gets "documents" (one row per document, see
+    build_division), "read_split" and "embed" in seconds, so the stress test
+    (prototype.stress_test) can record where build time goes.
+    """
     chunks: List[Dict] = []
+    stats: List[Dict] = []
+    read_started = time.perf_counter()
     for division in divisions:
         started = time.perf_counter()
-        division_chunks = build_division(config, division, chunk_size, chunk_overlap)
+        first = len(stats)
+        division_chunks = build_division(config, division, chunk_size, chunk_overlap, stats=stats)
         print(f"{division.id}: {len(division_chunks)} chunks ({time.perf_counter() - started:.0f}s to read and split)")
         # The last page of each document, for its "Pages" column in docs/source-documents/SOURCES.md.
-        for source in dict.fromkeys(c["source"] for c in division_chunks):
-            of_source = [c for c in division_chunks if c["source"] == source]
-            print(f"  {source}: {len(of_source)} chunks, last page {max(c['page'] or 0 for c in of_source)}")
+        for row in stats[first:]:
+            print(f"  {row['source']}: {row['chunks']} chunks, last page {row['last_page']}, "
+                  f"{row['pages_with_text']} page(s) with text, {row['seconds']:.1f}s")
+            warning = text_warning(row)
+            if warning:
+                print(f"  WARNING {row['source']}: {warning}")
         chunks += division_chunks
+    read_split = time.perf_counter() - read_started
+    started = time.perf_counter()
     vectors = embedder.passages(chunk["text"] for chunk in chunks)
+    embed = time.perf_counter() - started
+    print(f"read and split {read_split:.0f}s, embedded {len(chunks)} chunks in {embed:.0f}s")
+    if timings is not None:
+        timings.update(documents=stats, read_split=read_split, embed=embed)
     return IndexFile(embedder.model_name, chunks, vectors)
 
 
@@ -173,6 +238,7 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--chunk-size", type=int, default=CHUNK_SIZE, help=f"tokens per chunk (default {CHUNK_SIZE})")
     parser.add_argument("--chunk-overlap", type=int, default=CHUNK_OVERLAP, help=f"token overlap (default {CHUNK_OVERLAP})")
     parser.add_argument("--compare", action="store_true", help="check the vectors against sentence-transformers")
+    parser.add_argument("--timings", type=Path, help="also write the build's timings (per document, read/split, embed) as JSON here")
     args = parser.parse_args(argv)
 
     load_dotenv()
@@ -180,13 +246,19 @@ def main(argv: List[str]) -> int:
     divisions = [BY_ID[d] for d in args.division] if args.division else list(DIVISIONS)
     embedder = Embedder()
     started = time.perf_counter()
-    index = build(config, divisions, embedder, args.chunk_size, args.chunk_overlap)
+    timings: Dict = {}
+    index = build(config, divisions, embedder, args.chunk_size, args.chunk_overlap, timings)
     index.save(args.out)
     size = sum(f.stat().st_size for f in args.out.iterdir() if f.is_file())
+    total = time.perf_counter() - started
     print(
         f"{len(index.chunks)} chunks from {len({c['source'] for c in index.chunks})} file(s) "
-        f"in {time.perf_counter() - started:.0f}s -> {args.out} ({size / 1e6:.1f} MB)"
+        f"in {total:.0f}s -> {args.out} ({size / 1e6:.1f} MB)"
     )
+    if args.timings:
+        timings.update(total=total, index_bytes=size, chunks=len(index.chunks))
+        args.timings.parent.mkdir(parents=True, exist_ok=True)
+        args.timings.write_text(json.dumps(timings, indent=1), encoding="utf-8")
     if args.compare:
         compare(config, index, embedder)
     return 0

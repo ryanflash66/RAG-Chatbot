@@ -16,10 +16,10 @@ from divrag import answer as answer_module  # noqa: E402
 from divrag import llm as llm_module  # noqa: E402
 from divrag.answer import (  # noqa: E402
     HISTORY_ANSWER_CHARS, HISTORY_QUESTION_CHARS, HISTORY_TURNS, NOT_FOUND, SUGGEST_CANDIDATES, Answerer, LiveSteps,
-    _VisibleText, attach_sources, build_messages, cited_numbers, live_step_labels,
+    _VisibleText, attach_sources, build_messages, cited_numbers, live_step_labels, refusal_text,
 )
 from divrag.config import load_settings  # noqa: E402
-from divrag.divisions import BY_ID  # noqa: E402
+from divrag.divisions import BY_ID, Division, Document  # noqa: E402
 from divrag.index_file import Hit  # noqa: E402
 from divrag.llm import (  # noqa: E402
     BUSY, DAILY_LIMIT, MISCONFIGURED, TOO_LONG, UNAVAILABLE, Completion, LLMError, OpenRouterClient,
@@ -298,7 +298,7 @@ def test_not_in_documents_reply_is_a_refusal_with_no_sources():
 
     assert result.refused
     assert result.sources == []
-    assert "Utilities documents" in result.answer and "Utilities Accommodation Manual" in result.answer
+    assert "I couldn't find an answer to that in the Utilities documents (" in result.answer
     assert result.suggest == []  # the other division's best passage scored too low
 
 
@@ -335,6 +335,15 @@ def test_refusal_suggests_the_other_division_when_its_documents_look_relevant():
     assert retriever.candidates[-1] == SUGGEST_CANDIDATES  # a smaller rerank than the question's own
     assert "try asking Work Zone Traffic Control" in result.answer
     assert result.as_dict()["suggest"] == [{"id": "wztc", "name": "Work Zone Traffic Control"}]
+
+
+def test_a_refusal_names_a_few_documents_and_counts_many():
+    documents = tuple(Document(f"d{i}.pdf", f"Manual {i}", f"https://connect.ncdot.gov/d{i}.pdf") for i in range(20))
+    few = Division(id="few", name="Few", unit="u", documents=documents[:2])
+    many = Division(id="many", name="Many", unit="u", documents=documents)  # a division after DAR-621
+
+    assert "in the Few documents (Manual 0; Manual 1)." in refusal_text(few, [])
+    assert "in the Many documents (20 documents)." in refusal_text(many, [])
 
 
 def test_refusal_suggests_every_other_division_whose_documents_look_relevant():

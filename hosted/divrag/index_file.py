@@ -14,7 +14,7 @@ Only numpy is needed to load and search it.
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -35,7 +35,7 @@ class IndexFile:
         self.model = model
         self.chunks = chunks
         self.vectors = vectors
-        self._rows_cache: Dict[Tuple[Optional[str], Optional[Tuple[str, ...]]], np.ndarray] = {}
+        self._rows_cache: Dict[Optional[str], np.ndarray] = {}
         self._position = {id(chunk): i for i, chunk in enumerate(chunks)}
 
     @classmethod
@@ -58,15 +58,21 @@ class IndexFile:
         return sorted({c.get("division") for c in self.chunks if c.get("division")})
 
     def _rows(self, division: Optional[str], sources: Optional[Sequence[str]] = None) -> np.ndarray:
-        """Row numbers of `division`'s chunks (every division when None), only from `sources` when given."""
-        key = (division, tuple(sorted(set(sources))) if sources is not None else None)
-        if key not in self._rows_cache:
-            wanted = set(sources) if sources is not None else None
-            rows = [i for i, c in enumerate(self.chunks)
-                    if (division is None or c.get("division") == division)
-                    and (wanted is None or c.get("source") in wanted)]
-            self._rows_cache[key] = np.array(rows, dtype=int)
-        return self._rows_cache[key]
+        """Row numbers of `division`'s chunks (every division when None), only from `sources` when given.
+
+        Only whole divisions are cached. The visitor picks the `sources` subset, and
+        with 20 documents a division (DAR-621) there are about a million subsets, so
+        caching each would grow without bound on a warm instance; filtering a cached
+        division's rows takes about a millisecond.
+        """
+        if division not in self._rows_cache:
+            rows = [i for i, c in enumerate(self.chunks) if division is None or c.get("division") == division]
+            self._rows_cache[division] = np.array(rows, dtype=int)
+        rows = self._rows_cache[division]
+        if sources is None:
+            return rows
+        wanted = set(sources)
+        return np.array([i for i in rows if self.chunks[i].get("source") in wanted], dtype=int)
 
     def count(self, division: Optional[str] = None, sources: Optional[Sequence[str]] = None) -> int:
         """How many chunks a search with the same filters would look through."""

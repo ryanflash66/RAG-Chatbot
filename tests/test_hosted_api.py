@@ -7,6 +7,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import numpy as np
 import pytest
@@ -25,6 +26,12 @@ from divrag.timing import STEPS  # noqa: E402
 UAM = "20220713 NCDOT UAM Ver 2-0.pdf"
 TMP = "TMP Design Manual (Combined, No Links).pdf"
 SECRET = "sk-or-test-secret"
+# Public government hosts the divisions' documents may come from (DAR-621 added FHWA
+# publications and CFR parts from govinfo next to the NCDOT manuals); citations link there.
+PUBLIC_DOCUMENT_HOSTS = {
+    "connect.ncdot.gov", "www.ncdot.gov", "highways.dot.gov", "www.fhwa.dot.gov", "ops.fhwa.dot.gov",
+    "safety.fhwa.dot.gov", "mutcd.fhwa.dot.gov", "flh.fhwa.dot.gov", "www.govinfo.gov", "www.ecfr.gov",
+}
 
 
 class _FakeRetriever:
@@ -229,7 +236,9 @@ def test_page_divisions_and_health_expose_no_secrets(api):
 
     assert page.status_code == 200 and "<title>" in page.text
     assert [d["id"] for d in divisions["divisions"]] == ["wztc", "utilities", "tmsd"]
-    assert all(d["examples"] and d["documents"][0]["url"].startswith("https://connect.ncdot.gov/") for d in divisions["divisions"])
+    assert all(d["examples"] and d["documents"] for d in divisions["divisions"])
+    urls = [urlsplit(doc["url"]) for d in divisions["divisions"] for doc in d["documents"]]
+    assert all(u.scheme == "https" and u.hostname in PUBLIC_DOCUMENT_HOSTS for u in urls)
     assert health["llm_configured"] is True
     assert health["cpus"]["cpu_count"] >= 1
     assert all(m.endswith(":free") for m in health["llm_models"])
@@ -334,9 +343,11 @@ def test_divisions_count_the_passages_of_each_document_and_division(api, small_i
     divisions = {d["id"]: d for d in client.get("/api/divisions").json()["divisions"]}
 
     assert divisions["utilities"]["passages"] == 3 and divisions["wztc"]["passages"] == 2
-    (uam,) = divisions["utilities"]["documents"]
-    assert uam["passages"] == 3 and uam["file"] == UAM and uam["title"] and uam["url"]
-    assert divisions["wztc"]["documents"][0]["passages"] == 2
+    uam = next(doc for doc in divisions["utilities"]["documents"] if doc["file"] == UAM)
+    assert uam["passages"] == 3 and uam["title"] and uam["url"]
+    assert next(doc for doc in divisions["wztc"]["documents"] if doc["file"] == TMP)["passages"] == 2
+    # The other documents have no chunks in this small index.
+    assert sum(doc["passages"] for doc in divisions["utilities"]["documents"]) == 3
 
 
 def test_every_listed_document_has_passages_in_the_committed_index(api):
@@ -358,8 +369,10 @@ def test_every_reply_says_how_many_documents_and_passages_were_searched(api, sma
     llm.reply = NOT_FOUND
     refused = _ask(client).json()
 
-    for data in (answered, ticked, refused):
-        assert data["searched"] == {"documents": 1, "passages": 3}  # never the asker's (wztc) 2 passages
+    # Never the asker's (wztc) 2 passages; TMP is not a Utilities document, so ticking it searches only the UAM.
+    everything = len(hosted.BY_ID["utilities"].documents)
+    assert answered["searched"] == refused["searched"] == {"documents": everything, "passages": 3}
+    assert ticked["searched"] == {"documents": 1, "passages": 3}
     assert refused["refused"] is True
 
 
