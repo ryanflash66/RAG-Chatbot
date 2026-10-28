@@ -471,6 +471,11 @@ LIVE_STEPS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("suggest", ("suggest",)),
 )
 
+# Steps that only run after a refusal, so the page isn't told about them in
+# advance: most answers never retry or suggest, and a step left "not started"
+# at the end would read as if the answer stopped short (DAR-636).
+OCCASIONAL_STEPS = ("retry", "suggest")
+
 
 def live_step_labels(target: Division, passages: int, top_k: int) -> Dict[str, str]:
     """What the page calls each live step; `passages` is how many the search looks through."""
@@ -492,7 +497,8 @@ class LiveSteps:
     last one, with their times added, so its ms are the ones in timing_ms.
     `done` lists the finished ones, [{"id", "label", "ms"}], for the answer's
     payload; with `emit`, each start and finish is also sent as it happens:
-    emit("step", {"id", "label", "status": "start" | "done", "ms"}).
+    emit("step", {"id", "label", "status": "start" | "done", "ms"}), after
+    announce() has sent the expected ones as "pending".
     """
 
     def __init__(self, labels: Dict[str, str], emit: Optional[Emit] = None):
@@ -502,6 +508,18 @@ class LiveSteps:
         self._last = {live: parts[-1] for live, parts in LIVE_STEPS}
         self._running: Dict[str, int] = {}
         self.done: List[Dict[str, Any]] = []
+
+    def announce(self, rerank: bool) -> None:
+        """Send each step expected to run as pending, in order, before the first one starts.
+
+        The page lists every step from the start as not started (DAR-636: on the
+        Oct 22 demo a list that grew one step at a time was confusing). rerank runs
+        only with a reranker; retry and suggest (OCCASIONAL_STEPS) appear when they start.
+        """
+        for live, _ in LIVE_STEPS:
+            if live in OCCASIONAL_STEPS or (live == "rerank" and not rerank):
+                continue
+            self._send(live, "pending", 0)
 
     def __call__(self, step: str, status: str, ms: int) -> None:
         live = self._live[step]

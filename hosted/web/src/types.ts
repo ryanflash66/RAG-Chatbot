@@ -38,7 +38,8 @@ export type Source = {
 export type StepEvent = {
   id: "read" | "search" | "rerank" | "write" | "check" | "retry" | "suggest" | string;
   label?: string;
-  status: "start" | "done";
+  /** "pending": listed at the start of the stream, not started yet (DAR-636). */
+  status: "pending" | "start" | "done";
   ms?: number;
 };
 
