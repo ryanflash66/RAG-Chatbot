@@ -1,0 +1,41 @@
+{
+ "documents": [
+  {
+   "division": "wztc",
+   "source": "TMP Design Manual (Combined, No Links).pdf",
+   "seconds": 27.45972250000341,
+   "pages_with_text": 172,
+   "chunks": 216,
+   "last_page": 172
+  },
+  {
+   "division": "utilities",
+   "source": "20220713 NCDOT UAM Ver 2-0.pdf",
+   "seconds": 50.088570299965795,
+   "pages_with_text": 285,
+   "chunks": 542,
+   "last_page": 311
+  },
+  {
+   "division": "tmsd",
+   "source": "TODS Manual - September 2024.pdf",
+   "seconds": 7.0852768999757245,
+   "pages_with_text": 46,
+   "chunks": 74,
+   "last_page": 46
+  },
+  {
+   "division": "tmsd",
+   "source": "Fatal Investigation Guidelines.pdf",
+   "seconds": 1.0052221999503672,
+   "pages_with_text": 5,
+   "chunks": 7,
+   "last_page": 5
+  }
+ ],
+ "read_split": 85.82915269996738,
+ "embed": 68.02786590001779,
+ "total": 153.8693400999764,
+ "index_bytes": 2052518,
+ "chunks": 839
+}

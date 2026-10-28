@@ -154,7 +154,7 @@ class AskRequest(BaseModel):
     history: List[Turn] = Field(default_factory=list, max_length=6)
     # Document files (divisions.py `file`) to search; None searches all of the target's documents (DAR-620).
     # The page sends every ticked file when only some are ticked, so the cap is well above any
-    # division's document count today (one each); a selection over it would get a 422.
+    # division's document count today (20 at most, after DAR-621); a selection over it would get a 422.
     documents: Optional[List[str]] = Field(default=None, max_length=200)
 
 

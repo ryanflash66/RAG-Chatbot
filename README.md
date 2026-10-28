@@ -247,13 +247,15 @@ To add a document or a division:
 
    ```bash
    .venv\Scripts\python hosted/scripts/fetch_documents.py   # every listed PDF -> hosted/documents/<division>/ (skips ones already there)
-   .venv\Scripts\python -m prototype.ingest                 # all divisions -> hosted/index/ (prints each document's chunks and last page)
+   .venv\Scripts\python -m prototype.ingest                 # all divisions -> hosted/index/ (prints each document's chunks, last page and read time, and warns about scanned PDFs)
    .venv\Scripts\python -m prototype.search --division tmsd "How many TODS panels can go on one intersection approach?"
    ```
 
 4. Fill in the page count in `SOURCES.md`, run the tests, and commit `hosted/index/` with the two lists. Pushing to `main` redeploys with the new index.
 
 Always run `prototype.ingest` without `--division` for the committed index: it rewrites the whole index with only the divisions it built. A PDF still in `data/` (where older checkouts kept them) is used when it isn't in its division's folder. Chunks are 512 tokens, not the chat app's 1024, because bge-small and the reranker read only the first 512 tokens of a passage. `--compare` checks fastembed's vectors against the sentence-transformers ones the chat app uses.
+
+At the scale of the 50-document stress test (58 documents with text, 10,427 passages) a full rebuild takes about 55 minutes and the index is 24 MB, well under the bundle limit; a scanned PDF yields no passages, so OCR it first. Build time, latency, ranking quality and what broke are in `docs/stress-test-50-documents.md`, and `python -m prototype.stress_test` reruns the measurements.
 
 ## License
 

@@ -1,0 +1,489 @@
+{
+ "documents": [
+  {
+   "division": "wztc",
+   "source": "TMP Design Manual (Combined, No Links).pdf",
+   "seconds": 28.08755100000417,
+   "pages_with_text": 172,
+   "chunks": 216,
+   "last_page": 172
+  },
+  {
+   "division": "wztc",
+   "source": "WZSafety_and_Mobility.pdf",
+   "seconds": 1.4165780000039376,
+   "pages_with_text": 0,
+   "chunks": 0,
+   "last_page": 0
+  },
+  {
+   "division": "wztc",
+   "source": "WZSafetyAndMobilityGuidelines.pdf",
+   "seconds": 5.832741599995643,
+   "pages_with_text": 26,
+   "chunks": 54,
+   "last_page": 26
+  },
+  {
+   "division": "wztc",
+   "source": "GLWZSIG.pdf",
+   "seconds": 0.5569010999752209,
+   "pages_with_text": 1,
+   "chunks": 4,
+   "last_page": 1
+  },
+  {
+   "division": "wztc",
+   "source": "Work Zone - Guidelines on the Use of Positive Protection Device Memo.pdf",
+   "seconds": 0.6065304999938235,
+   "pages_with_text": 2,
+   "chunks": 2,
+   "last_page": 2
+  },
+  {
+   "division": "wztc",
+   "source": "SOP 10-9 Flagging traffic.pdf",
+   "seconds": 0.6211874999571592,
+   "pages_with_text": 2,
+   "chunks": 5,
+   "last_page": 2
+  },
+  {
+   "division": "wztc",
+   "source": "Division 11 Combined.pdf",
+   "seconds": 24.439598499971908,
+   "pages_with_text": 59,
+   "chunks": 123,
+   "last_page": 59
+  },
+  {
+   "division": "wztc",
+   "source": "2024 Standard Specifications for Roads and Structures.pdf",
+   "seconds": 187.28937929996755,
+   "pages_with_text": 846,
+   "chunks": 2033,
+   "last_page": 857
+  },
+  {
+   "division": "wztc",
+   "source": "Chapter_2.pdf",
+   "seconds": 51.18658829998458,
+   "pages_with_text": 26,
+   "chunks": 30,
+   "last_page": 47
+  },
+  {
+   "division": "wztc",
+   "source": "Chapter_5.pdf",
+   "seconds": 96.50576189998537,
+   "pages_with_text": 79,
+   "chunks": 82,
+   "last_page": 92
+  },
+  {
+   "division": "wztc",
+   "source": "2023 WZ Safety & Mobility Process Review.pdf",
+   "seconds": 2.38953169999877,
+   "pages_with_text": 10,
+   "chunks": 16,
+   "last_page": 10
+  },
+  {
+   "division": "wztc",
+   "source": "NCDOTFinalRuleImplementation.pdf",
+   "seconds": 1.2219612000044435,
+   "pages_with_text": 5,
+   "chunks": 5,
+   "last_page": 5
+  },
+  {
+   "division": "wztc",
+   "source": "part6.pdf",
+   "seconds": 47.240641799988225,
+   "pages_with_text": 204,
+   "chunks": 324,
+   "last_page": 204
+  },
+  {
+   "division": "wztc",
+   "source": "bpguidebook.pdf",
+   "seconds": 58.14556219999213,
+   "pages_with_text": 293,
+   "chunks": 361,
+   "last_page": 293
+  },
+  {
+   "division": "wztc",
+   "source": "rule_guide.pdf",
+   "seconds": 25.00400760001503,
+   "pages_with_text": 91,
+   "chunks": 167,
+   "last_page": 103
+  },
+  {
+   "division": "wztc",
+   "source": "trans_mgmt_plans.pdf",
+   "seconds": 32.555985799990594,
+   "pages_with_text": 124,
+   "chunks": 200,
+   "last_page": 131
+  },
+  {
+   "division": "wztc",
+   "source": "wzi_guide.pdf",
+   "seconds": 40.39157569996314,
+   "pages_with_text": 173,
+   "chunks": 274,
+   "last_page": 183
+  },
+  {
+   "division": "wztc",
+   "source": "fhwahop14008.pdf",
+   "seconds": 22.338917599990964,
+   "pages_with_text": 76,
+   "chunks": 151,
+   "last_page": 80
+  },
+  {
+   "division": "wztc",
+   "source": "fhwahop12005.pdf",
+   "seconds": 63.57872640003916,
+   "pages_with_text": 208,
+   "chunks": 473,
+   "last_page": 208
+  },
+  {
+   "division": "wztc",
+   "source": "CFR-2024-title23-vol1-part630.pdf",
+   "seconds": 5.32189570000628,
+   "pages_with_text": 16,
+   "chunks": 32,
+   "last_page": 16
+  },
+  {
+   "division": "wztc",
+   "source": "04-20340.pdf",
+   "seconds": 6.251540699973702,
+   "pages_with_text": 11,
+   "chunks": 44,
+   "last_page": 11
+  },
+  {
+   "division": "utilities",
+   "source": "20220713 NCDOT UAM Ver 2-0.pdf",
+   "seconds": 74.35580010002013,
+   "pages_with_text": 285,
+   "chunks": 542,
+   "last_page": 311
+  },
+  {
+   "division": "utilities",
+   "source": "NCDOT Utility Cost Reimbursement Guidance_8-20-2026.pdf",
+   "seconds": 1.7788121000048704,
+   "pages_with_text": 5,
+   "chunks": 6,
+   "last_page": 5
+  },
+  {
+   "division": "utilities",
+   "source": "Encroachment_Requirements_Involving_Excessive_Height_Direct_Bury_Poles_5-26-2026.pdf",
+   "seconds": 0.8412082999711856,
+   "pages_with_text": 2,
+   "chunks": 3,
+   "last_page": 2
+  },
+  {
+   "division": "utilities",
+   "source": "18. Utility Plans.pdf",
+   "seconds": 0.5618401000392623,
+   "pages_with_text": 1,
+   "chunks": 1,
+   "last_page": 1
+  },
+  {
+   "division": "utilities",
+   "source": "09. Right of Way.pdf",
+   "seconds": 2.40349439997226,
+   "pages_with_text": 10,
+   "chunks": 10,
+   "last_page": 10
+  },
+  {
+   "division": "utilities",
+   "source": "UtilitiesCoordination-Encroachments-presentation-notes.pdf",
+   "seconds": 6.988679200003389,
+   "pages_with_text": 45,
+   "chunks": 45,
+   "last_page": 45
+  },
+  {
+   "division": "utilities",
+   "source": "DOT Encroachment Submissions User Manual - July 2023.pdf",
+   "seconds": 24.060757900006138,
+   "pages_with_text": 77,
+   "chunks": 99,
+   "last_page": 77
+  },
+  {
+   "division": "utilities",
+   "source": "Utility-Encroachment-Plan-Requirements.pdf",
+   "seconds": 0.9599913000129163,
+   "pages_with_text": 2,
+   "chunks": 4,
+   "last_page": 2
+  },
+  {
+   "division": "utilities",
+   "source": "16-1-Two-Party-Utility-Primary-and-Secondary-Highways-Non-C-A.pdf",
+   "seconds": 1.2478101999731734,
+   "pages_with_text": 2,
+   "chunks": 6,
+   "last_page": 2
+  },
+  {
+   "division": "utilities",
+   "source": "if03014.pdf",
+   "seconds": 21.519017999991775,
+   "pages_with_text": 100,
+   "chunks": 180,
+   "last_page": 100
+  },
+  {
+   "division": "utilities",
+   "source": "utility_row.pdf",
+   "seconds": 2.4806172999669798,
+   "pages_with_text": 15,
+   "chunks": 15,
+   "last_page": 15
+  },
+  {
+   "division": "utilities",
+   "source": "EDC-8_Factsheet_SUE.pdf",
+   "seconds": 0.8637913999846205,
+   "pages_with_text": 2,
+   "chunks": 2,
+   "last_page": 2
+  },
+  {
+   "division": "utilities",
+   "source": "hif22002.pdf",
+   "seconds": 2.022644200013019,
+   "pages_with_text": 6,
+   "chunks": 9,
+   "last_page": 6
+  },
+  {
+   "division": "utilities",
+   "source": "hif22040.pdf",
+   "seconds": 1.8265605000196956,
+   "pages_with_text": 6,
+   "chunks": 10,
+   "last_page": 6
+  },
+  {
+   "division": "utilities",
+   "source": "010604.pdf",
+   "seconds": 156.46492610004498,
+   "pages_with_text": 226,
+   "chunks": 410,
+   "last_page": 227
+  },
+  {
+   "division": "utilities",
+   "source": "09utilcoordcert.pdf",
+   "seconds": 1.3656726999906823,
+   "pages_with_text": 3,
+   "chunks": 4,
+   "last_page": 3
+  },
+  {
+   "division": "utilities",
+   "source": "fhwahop09021.pdf",
+   "seconds": 20.843573199992534,
+   "pages_with_text": 125,
+   "chunks": 185,
+   "last_page": 140
+  },
+  {
+   "division": "utilities",
+   "source": "CFR-2024-title23-vol1-part645.pdf",
+   "seconds": 5.002262299996801,
+   "pages_with_text": 19,
+   "chunks": 38,
+   "last_page": 19
+  },
+  {
+   "division": "utilities",
+   "source": "CFR-2024-title23-vol1-part710.pdf",
+   "seconds": 6.069198800018057,
+   "pages_with_text": 23,
+   "chunks": 46,
+   "last_page": 23
+  },
+  {
+   "division": "tmsd",
+   "source": "TODS Manual - September 2024.pdf",
+   "seconds": 8.347104399988893,
+   "pages_with_text": 46,
+   "chunks": 74,
+   "last_page": 46
+  },
+  {
+   "division": "tmsd",
+   "source": "Fatal Investigation Guidelines.pdf",
+   "seconds": 1.1151169000077061,
+   "pages_with_text": 5,
+   "chunks": 7,
+   "last_page": 5
+  },
+  {
+   "division": "tmsd",
+   "source": "Revised Rumble Strip Guidelines.pdf",
+   "seconds": 0.9145341000403278,
+   "pages_with_text": 0,
+   "chunks": 0,
+   "last_page": 0
+  },
+  {
+   "division": "tmsd",
+   "source": "Policy on Access Manual.pdf",
+   "seconds": 18.73416079999879,
+   "pages_with_text": 89,
+   "chunks": 104,
+   "last_page": 90
+  },
+  {
+   "division": "tmsd",
+   "source": "Signal System Timing Philosophy Manual.pdf",
+   "seconds": 14.565620100009255,
+   "pages_with_text": 61,
+   "chunks": 96,
+   "last_page": 61
+  },
+  {
+   "division": "tmsd",
+   "source": "L18_TSLG_Guide.pdf",
+   "seconds": 203.662985700008,
+   "pages_with_text": 706,
+   "chunks": 1590,
+   "last_page": 706
+  },
+  {
+   "division": "tmsd",
+   "source": "C34 - Manual 2012.pdf",
+   "seconds": 29.691443799994886,
+   "pages_with_text": 124,
+   "chunks": 146,
+   "last_page": 124
+  },
+  {
+   "division": "tmsd",
+   "source": "03. Guardrail, Barriers and Attenuators.pdf",
+   "seconds": 7.756446900020819,
+   "pages_with_text": 31,
+   "chunks": 43,
+   "last_page": 31
+  },
+  {
+   "division": "tmsd",
+   "source": "09. At Grade Intersections.pdf",
+   "seconds": 14.509773699974176,
+   "pages_with_text": 41,
+   "chunks": 60,
+   "last_page": 41
+  },
+  {
+   "division": "tmsd",
+   "source": "bikeped_Ped_Policy.pdf",
+   "seconds": 3.504550699959509,
+   "pages_with_text": 15,
+   "chunks": 20,
+   "last_page": 15
+  },
+  {
+   "division": "tmsd",
+   "source": "interim-design-safety-pilot-program.pdf",
+   "seconds": 16.767584899964277,
+   "pages_with_text": 58,
+   "chunks": 72,
+   "last_page": 58
+  },
+  {
+   "division": "tmsd",
+   "source": "fhwa_hop_08_024.pdf",
+   "seconds": 74.06132989999605,
+   "pages_with_text": 273,
+   "chunks": 443,
+   "last_page": 274
+  },
+  {
+   "division": "tmsd",
+   "source": "Chapter2c.pdf",
+   "seconds": 19.50531510001747,
+   "pages_with_text": 58,
+   "chunks": 125,
+   "last_page": 58
+  },
+  {
+   "division": "tmsd",
+   "source": "part3.pdf",
+   "seconds": 24.45435129996622,
+   "pages_with_text": 106,
+   "chunks": 164,
+   "last_page": 106
+  },
+  {
+   "division": "tmsd",
+   "source": "01102.pdf",
+   "seconds": 32.76993469998706,
+   "pages_with_text": 160,
+   "chunks": 222,
+   "last_page": 164
+  },
+  {
+   "division": "tmsd",
+   "source": "04100.pdf",
+   "seconds": 31.239311999990605,
+   "pages_with_text": 111,
+   "chunks": 259,
+   "last_page": 114
+  },
+  {
+   "division": "tmsd",
+   "source": "STEP-guide-improving-ped-safety.pdf",
+   "seconds": 12.860463799966965,
+   "pages_with_text": 41,
+   "chunks": 61,
+   "last_page": 41
+  },
+  {
+   "division": "tmsd",
+   "source": "04091.pdf",
+   "seconds": 112.35479730000952,
+   "pages_with_text": 358,
+   "chunks": 681,
+   "last_page": 372
+  },
+  {
+   "division": "tmsd",
+   "source": "CFR-2024-title23-vol1-part924.pdf",
+   "seconds": 2.6794332999852486,
+   "pages_with_text": 6,
+   "chunks": 14,
+   "last_page": 6
+  },
+  {
+   "division": "tmsd",
+   "source": "CFR-2024-title23-vol1-part655.pdf",
+   "seconds": 5.145093199971598,
+   "pages_with_text": 8,
+   "chunks": 35,
+   "last_page": 8
+  }
+ ],
+ "read_split": 1667.395112600003,
+ "embed": 1633.4897985999705,
+ "total": 3301.2521702999948,
+ "index_bytes": 23829668,
+ "chunks": 10427
+}
