@@ -18,8 +18,10 @@ export type Turn = { question: string; answer: string };
  * neither field. `carry`: these turns are sent instead of the thread's ("Ask … instead"
  * sends the question the refused one was searched with). `standalone`: no earlier turns.
  * Either way the question starts a topic, and later follow-ups look no further back.
+ * `refusedBy`: the divisions that refused this question before an "Ask … instead";
+ * the server won't suggest them again.
  */
-export type QuestionMetadata = { carry?: Turn[]; standalone?: boolean };
+export type QuestionMetadata = { carry?: Turn[]; standalone?: boolean; refusedBy?: string[] };
 
 /** The parts of a thread message the history reads; assistant-ui's ThreadMessage fits it. */
 export type HistoryMessage = {
@@ -107,4 +109,20 @@ export function carryForSuggestion(messages: readonly HistoryMessage[], index: n
   const turns = turnsFor(messages.slice(0, index), target);
   const prior = turns.at(-1)?.question ?? "";
   return prior ? [{ question: prior, answer: "" }] : [];
+}
+
+/**
+ * The divisions to send as refused_by when the refused answer at `index` is asked
+ * somewhere else: the ones its own question carried, plus the division that refused it.
+ */
+export function refusedBySoFar(messages: readonly HistoryMessage[], index: number): string[] {
+  const target = (messages[index]?.metadata.custom as AnswerMetadata | undefined)?.targetId;
+  const earlier = refusedByOf(index >= 1 ? messages[index - 1] : undefined);
+  return target && !earlier.includes(target) ? [...earlier, target] : earlier;
+}
+
+/** The refused_by a question is sent with: what its metadata carries, else none. */
+export function refusedByOf(message: HistoryMessage | undefined): string[] {
+  const refused = message?.role === "user" ? questionMeta(message).refusedBy : undefined;
+  return Array.isArray(refused) ? refused : [];
 }

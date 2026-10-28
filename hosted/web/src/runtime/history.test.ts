@@ -1,7 +1,15 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { answer, payload, question } from "./fixtures";
-import { buildHistory, carryForSuggestion, clip, HISTORY_ANSWER_CHARS, turnsFor } from "./history";
+import {
+  buildHistory,
+  carryForSuggestion,
+  clip,
+  HISTORY_ANSWER_CHARS,
+  refusedByOf,
+  refusedBySoFar,
+  turnsFor,
+} from "./history";
 
 const wztc = (text: string) => answer({ targetId: "wztc", payload: payload({ answer: text }) });
 
@@ -105,5 +113,25 @@ describe("carryForSuggestion", () => {
   it("carries nothing for a refused first question", () => {
     const messages = [question("Who pays?"), answer({ targetId: "wztc", payload: payload({ refused: true }) })];
     expect(carryForSuggestion(messages, 1)).toEqual([]);
+  });
+});
+
+describe("refusedBySoFar", () => {
+  const refused = (targetId: string) => answer({ targetId, payload: payload({ refused: true }) });
+
+  it("adds the division that refused to the ones its question already carried", () => {
+    const messages = [
+      question("Lane closure distance?"),
+      refused("utilities"),
+      question("Lane closure distance?", { carry: [], refusedBy: ["utilities"] }),
+      refused("wztc"),
+    ];
+    expect(refusedBySoFar(messages, 1)).toEqual(["utilities"]);
+    expect(refusedBySoFar(messages, 3)).toEqual(["utilities", "wztc"]);
+  });
+
+  it("sends refused_by only for a question that carries it", () => {
+    expect(refusedByOf(question("typed in the composer"))).toEqual([]);
+    expect(refusedByOf(question("asked instead", { refusedBy: ["wztc"] }))).toEqual(["wztc"]);
   });
 });

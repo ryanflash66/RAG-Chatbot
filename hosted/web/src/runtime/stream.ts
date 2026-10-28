@@ -19,6 +19,8 @@ export type AskRequest = {
   history: Turn[];
   /** The target's ticked document files, or null when all of them are ticked. */
   documents: string[] | null;
+  /** Divisions that already refused this question; a refusal won't suggest them again. */
+  refused_by?: string[];
 };
 
 export const UNREACHABLE = "Couldn't reach the server. Check your connection and try again.";

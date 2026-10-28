@@ -3,7 +3,7 @@
     GET  /                the page (public/index.html; public/css and public/js beside it)
     GET  /api/divisions   divisions, their documents (with passage counts) and example questions
     POST /api/warm        load the models now, returning once they are ready
-    POST /api/ask         {"question", "asker", "target", "history"?, "documents"?}
+    POST /api/ask         {"question", "asker", "target", "history"?, "documents"?, "refused_by"?}
                           -> answer with cited sources, timing_ms per step and
                              searched {documents, passages}
     POST /api/ask/stream  the same question; the steps, the answer's text as it is
@@ -156,6 +156,8 @@ class AskRequest(BaseModel):
     # The page sends every ticked file when only some are ticked, so the cap is well above any
     # division's document count today (20 at most, after DAR-621); a selection over it would get a 422.
     documents: Optional[List[str]] = Field(default=None, max_length=200)
+    # Divisions that already refused this question, sent by an "Ask … instead": a refusal never suggests them again.
+    refused_by: List[str] = Field(default_factory=list, max_length=20)
 
 
 class Question(NamedTuple):
@@ -165,6 +167,7 @@ class Question(NamedTuple):
     target: Division
     documents: Optional[List[str]]
     history: List[Dict[str, str]]
+    refused_by: Tuple[str, ...] = ()
 
 
 def _check(body: AskRequest, request: Request) -> Union[Question, JSONResponse]:
@@ -189,7 +192,9 @@ def _check(body: AskRequest, request: Request) -> Union[Question, JSONResponse]:
     if not settings.openrouter_api_key:
         log.error("OPENROUTER_API_KEY is not set")
         return _error(503, MISCONFIGURED)
-    return Question(question, asker, target, documents, [t.model_dump() for t in body.history])
+    # Unknown ids are dropped: they could only ever skip a division that doesn't exist.
+    refused_by = tuple(d for d in dict.fromkeys(body.refused_by) if d in BY_ID)
+    return Question(question, asker, target, documents, [t.model_dump() for t in body.history], refused_by)
 
 
 def _make_llm() -> OpenRouterClient:
@@ -324,9 +329,11 @@ async def _answer(checked: Question, emit: Optional[Emit] = None) -> Tuple[int, 
         remaining = max(MIN_ANSWER_SECONDS, settings.request_budget_seconds - (retrieved - started))
         deadline = time.monotonic() + remaining
         if emit is None:
-            answering = answerer.answer(question, asker, target, hits, deadline, timer, checked.history)
+            answering = answerer.answer(question, asker, target, hits, deadline, timer, checked.history,
+                                        checked.refused_by)
         else:
-            answering = answerer.answer_stream(question, asker, target, hits, emit, deadline, timer, checked.history)
+            answering = answerer.answer_stream(question, asker, target, hits, emit, deadline, timer, checked.history,
+                                               checked.refused_by)
         try:
             result = await asyncio.wait_for(answering, timeout=remaining)
         except asyncio.TimeoutError as exc:

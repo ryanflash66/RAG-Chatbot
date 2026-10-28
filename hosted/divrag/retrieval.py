@@ -10,7 +10,14 @@ from .embedder import Embedder, Reranker
 from .index_file import Hit, IndexFile
 from .timing import StepTimer, timed
 
-DEFAULT_CANDIDATES = 20
+# Vector hits handed to the reranker. 20 was enough for the 4 original manuals,
+# but with about 20 documents per division (DAR-621) the right chunk can rank just
+# below it: the UAM's lane-closure rule (p.126, 3.6.4.1) came 22nd for "At what
+# distance from a travel lane does utility work require a lane closure?", so
+# Utilities refused a question its manual answers. With 40, 75 of the 83
+# known-page questions find their page in the top 5, against 69 with 20
+# (docs/stress-test-50-documents.md), for about 0.2 s more reranking locally.
+DEFAULT_CANDIDATES = 40
 
 
 class Retriever:

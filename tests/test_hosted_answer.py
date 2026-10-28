@@ -355,6 +355,19 @@ def test_refusal_suggests_every_other_division_whose_documents_look_relevant():
         "try asking one of them instead: Work Zone Traffic Control; Transportation Mobility and Safety.")
 
 
+def test_refusal_never_suggests_a_division_that_already_refused_the_question():
+    # After DAR-621 "lane closure" scored above the bar in Work Zone and Utilities, and
+    # each refusal sent the visitor to the other; the page now names the ones that refused.
+    retriever = _FakeRetriever({"wztc": 3.2, "utilities": 2.0, "tmsd": 2.9})
+    answerer = Answerer(retriever, _FakeLLM(NOT_FOUND), retry_min_score=None)
+    hits = retriever.retrieve("q", "wztc")
+
+    result = asyncio.run(answerer.answer("q", BY_ID["utilities"], BY_ID["wztc"], hits, refused_by=("utilities",)))
+
+    assert result.suggest == ["tmsd"]
+    assert retriever.searched[1:] == ["tmsd"]  # Utilities isn't even searched again
+
+
 def test_suggestions_stop_when_the_request_is_nearly_out_of_time(monkeypatch):
     retriever = _FakeRetriever({"wztc": 3.2, "tmsd": 2.9})
     answerer = Answerer(retriever, _FakeLLM(NOT_FOUND))
@@ -489,11 +502,14 @@ def test_refusal_is_returned_when_the_retry_refuses_too():
     assert result.refused and result.retried and result.sources == []
     assert len(llm.calls) == 2  # retried once, not more
     assert "Utilities documents" in result.answer
+    # The refusal now comes from the retry's model, so the page names both instead of the first one twice.
+    assert (result.first_model, result.model) == ("test/model:free", "test/second:free")
 
 
 def test_refusal_is_returned_when_the_retry_fails_or_runs_out_of_time():
     failed, _ = _ask_with_retry([NOT_FOUND, LLMError(BUSY, status=429)], score=3.5, seconds_left=40)
     assert failed.refused and failed.retried
+    assert (failed.first_model, failed.model) == ("test/model:free", "test/model:free")  # no second reply
 
     class _SlowRetry(_FakeLLM):
         async def complete(self, messages, models=None):
@@ -523,6 +539,13 @@ def test_retry_settings_have_defaults_and_can_be_changed():
     assert (custom.retry_on_refusal, custom.retry_min_score, custom.retry_min_seconds) == (False, 2.5, 20.0)
     with pytest.raises(ValueError):
         load_settings({"RETRY_ON_REFUSAL": "maybe"})
+
+
+def test_the_reranker_reads_40_vector_hits_by_default():
+    # 20 left the UAM's lane-closure rule (vector rank 22) out once each division had ~20 documents.
+    from divrag.retrieval import DEFAULT_CANDIDATES
+    assert load_settings({}).rerank_candidates == DEFAULT_CANDIDATES == 40
+    assert load_settings({"RERANK_CANDIDATES": "20"}).rerank_candidates == 20
 
 
 def test_retry_models_are_the_ones_after_the_model_that_answered():

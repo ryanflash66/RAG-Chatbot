@@ -9,7 +9,7 @@ for the public demo.
     LLM_TEMPERATURE             default 0.1
     LLM_REASONING               "off" (default), "low", "medium" or "high" for reasoning models
     RERANK                      "on" (default) or "off": rerank vector hits with the cross-encoder
-    RERANK_CANDIDATES           vector hits handed to the reranker (default 20)
+    RERANK_CANDIDATES           vector hits handed to the reranker (default 40; see retrieval.DEFAULT_CANDIDATES)
     TOP_K                       passages given to the model (default 5)
     MODEL_CACHE_DIR             fastembed model directory (see embedder.model_cache_dir)
     ONNX_THREADS                onnxruntime threads per model (default: onnxruntime's own choice; see embedder.onnx_threads)
@@ -33,11 +33,13 @@ HOSTED_DIR = Path(__file__).resolve().parent.parent
 
 # Free models only, so the public link cannot spend the account's credits.
 # Chosen from https://openrouter.ai/api/v1/models on 2026-10-10: Nemotron 3 Ultra
-# answered the grounded test prompt correctly in ~2.5 s; Nemotron 3 Super is a
-# smaller model from the same family on a different endpoint; Gemma 4 31B was
+# answered the grounded test prompt correctly in ~2.5 s; Gemma 4 31B was
 # rate-limited upstream at the time but is a strong instruction follower when up.
+# Nemotron 3 Super, the first fallback until 2026-10-28, stopped being free (404
+# "unavailable for free"), so every retry after a refusal failed on it; Nemotron
+# 3.5 Super, its successor on the same endpoint, answered a cited test prompt.
 DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
-DEFAULT_FALLBACK_MODELS = ("nvidia/nemotron-3-super-120b-a12b:free", "google/gemma-4-31b-it:free")
+DEFAULT_FALLBACK_MODELS = ("nvidia/nemotron-3.5-super-vl:free", "google/gemma-4-31b-it:free")
 FREE_SUFFIX = ":free"
 
 
@@ -101,7 +103,7 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         temperature=float(env.get("LLM_TEMPERATURE", "0.1")),
         reasoning=reasoning,
         rerank=rerank in ("on", "1", "true"),
-        rerank_candidates=int(env.get("RERANK_CANDIDATES", "20")),
+        rerank_candidates=int(env.get("RERANK_CANDIDATES", "40")),
         top_k=top_k,
         index_dir=index_dir if index_dir.is_absolute() else HOSTED_DIR / index_dir,
         max_question_chars=int(env.get("MAX_QUESTION_CHARS", "500")),
