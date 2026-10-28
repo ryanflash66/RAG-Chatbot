@@ -27,7 +27,7 @@ describe("applyEvent", () => {
     );
   });
 
-  it("replaces the streamed text with the checked answer on done and finishes every step", () => {
+  it("replaces the streamed text with the checked answer on done and finishes every started step", () => {
     const done = payload();
     const answer = fold([
       { type: "step", step: { id: "read", label: "Reading", status: "start" } },
@@ -36,7 +36,50 @@ describe("applyEvent", () => {
     ]);
     expect(answer.text).toBe(done.answer);
     expect(answer.payload).toBe(done);
-    expect(answer.steps).toEqual([{ id: "read", label: "Reading", status: "done", ms: 0 }]);
+    // Its done event never came: the time is the payload's.
+    expect(answer.steps).toEqual([{ id: "read", label: "Reading", status: "done", ms: 40 }]);
+  });
+
+  it("lists the pending steps in order and never takes a started step back to pending", () => {
+    const answer = fold([
+      { type: "step", step: { id: "read", label: "Reading", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "write", label: "Writing", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "read", status: "start", ms: 0 } },
+      { type: "step", step: { id: "read", status: "pending", ms: 0 } },
+    ]);
+    expect(answer.steps).toEqual([
+      { id: "read", label: "Reading", status: "start", ms: 0 },
+      { id: "write", label: "Writing", status: "pending", ms: 0 },
+    ]);
+  });
+
+  it("drops a pending step once a later one starts, as it was skipped", () => {
+    const answer = fold([
+      { type: "step", step: { id: "search", label: "Searching", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "rerank", label: "Picking", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "write", label: "Writing", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "check", label: "Checking", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "search", status: "done", ms: 3 } },
+      { type: "step", step: { id: "write", status: "start", ms: 0 } },
+    ]);
+    expect(answer.steps.map((s) => `${s.id}:${s.status}`)).toEqual(["search:done", "write:start", "check:pending"]);
+  });
+
+  it("on done, finishes the steps that ran and drops the pending ones that never started", () => {
+    const done = payload(); // its steps: read and write
+    const answer = fold([
+      { type: "step", step: { id: "read", label: "Reading", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "rerank", label: "Picking", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "write", label: "Writing", status: "pending", ms: 0 } },
+      { type: "step", step: { id: "read", status: "start", ms: 0 } },
+      { type: "step", step: { id: "read", status: "done", ms: 40 } },
+      { type: "step", step: { id: "write", status: "start", ms: 0 } },
+      { type: "done", payload: done },
+    ]);
+    expect(answer.steps).toEqual([
+      { id: "read", label: "Reading", status: "done", ms: 40 },
+      { id: "write", label: "Writing", status: "done", ms: 3200 },
+    ]);
   });
 
   it("takes the steps from the payload when none were streamed (the api/ask fallback)", () => {

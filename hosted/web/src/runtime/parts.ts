@@ -13,7 +13,7 @@ export type AskEvent =
   | { type: "done"; payload: AnswerPayload };
 
 export type AnswerSoFar = {
-  /** One entry per step id, in the order the steps started, with its latest status. */
+  /** One entry per step id, in the order the steps were listed or started, with its latest status. */
   steps: StepEvent[];
   text: string;
   payload?: AnswerPayload;
@@ -26,21 +26,29 @@ export const NOTHING_YET: AnswerSoFar = { steps: [], text: "" };
 function withStep(steps: StepEvent[], step: StepEvent): StepEvent[] {
   if (!step || !step.id) return steps;
   const at = steps.findIndex((s) => s.id === step.id);
-  if (at < 0) return [...steps, step];
-  const merged = { ...steps[at], ...step, label: step.label ?? steps[at].label };
-  return steps.map((s, i) => (i === at ? merged : s));
+  if (at >= 0 && step.status === "pending") return steps; // a step never goes back from running or done
+  const listed = at < 0 ? [...steps, step] : steps.map((s, i) => (i === at ? { ...s, ...step, label: step.label ?? s.label } : s));
+  if (step.status === "pending") return listed;
+  // The steps run in the order listed, so one still pending before a step that started
+  // was skipped (the reranker skips a single passage): it leaves the list (DAR-636).
+  const index = at < 0 ? listed.length - 1 : at;
+  return listed.filter((s, i) => i >= index || s.status !== "pending");
 }
 
 /**
  * The steps once the answer is complete. Without any step events (the /api/ask
- * fallback) they come from the payload, the same steps the stream sends; a step
- * that never reported done is shown done.
+ * fallback) they come from the payload, the same steps the stream sends. A step
+ * that started but never reported done is shown done; one still pending never ran
+ * (the reranker skips a single passage) and is dropped, as the old page does (DAR-636).
  */
 function finishedSteps(steps: StepEvent[], payload: AnswerPayload): StepEvent[] {
+  const finished = new Map((payload.steps ?? []).map((s) => [s.id, s]));
   if (!steps.length) {
     return (payload.steps ?? []).map((s) => ({ id: s.id, label: s.label, status: "done", ms: s.ms }));
   }
-  return steps.map((s) => (s.status === "done" ? s : { ...s, status: "done", ms: s.ms ?? 0 }));
+  return steps
+    .filter((s) => s.status !== "pending" || finished.has(s.id))
+    .map((s) => (s.status === "done" ? s : { ...s, status: "done", ms: finished.get(s.id)?.ms ?? s.ms ?? 0 }));
 }
 
 export function applyEvent(answer: AnswerSoFar, event: AskEvent): AnswerSoFar {
