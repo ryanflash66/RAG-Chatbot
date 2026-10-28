@@ -197,20 +197,31 @@
   // The options that send a question again the way it was first sent: an example
   // or an "Ask … instead" again without the thread (with the carried question, if any).
   function sameWay(record) {
-    if (!record.standalone) return null;
+    var refusedBy = refusedAlready(record);
+    if (!record.standalone) return refusedBy.length ? { refusedBy: refusedBy } : null;
     var prior = typeof record.prior === "string" ? record.prior : "";
-    return { carry: prior ? [{ question: prior, answer: "" }] : [] };
+    return { carry: prior ? [{ question: prior, answer: "" }] : [], refusedBy: refusedBy };
+  }
+
+  // The divisions that refused this question before it was asked here; a record
+  // restored from an older page has none.
+  function refusedAlready(record) {
+    return record && Array.isArray(record.refusedBy) ? record.refusedBy : [];
   }
 
   // The server suggested another division after searching it with the same
   // text as the refused question: the previous question plus this one. Asking
   // there sends that previous question again, without its answer (which came
   // from the first division's documents), so the new search keeps the topic.
+  // It also names every division that has refused the question so far, so the
+  // new division's refusal doesn't send the visitor back to one of them.
   function askInstead(answerId, q, targetId) {
     if (busy) return;
     var record = recordFor[answerId], prior = record && typeof record.prior === "string" ? record.prior : "";
+    var refusedBy = refusedAlready(record).slice();
+    if (record && refusedBy.indexOf(record.target) < 0) refusedBy.push(record.target);
     App.setTarget(targetId);
-    ask(q, { carry: prior ? [{ question: prior, answer: "" }] : [] });
+    ask(q, { carry: prior ? [{ question: prior, answer: "" }] : [], refusedBy: refusedBy });
   }
 
   // "Try again" on a failed exchange: the same question to the same divisions, as a new
@@ -242,7 +253,8 @@
     var record = {
       question: q, asker: sel.asker, target: sel.target,
       prior: turns.length ? turns[turns.length - 1].question : "",
-      standalone: !!(options.standalone || options.carry)
+      standalone: !!(options.standalone || options.carry),
+      refusedBy: options.refusedBy || []
     };
     var view = addExchange(record);
     pending = record;
@@ -258,7 +270,7 @@
     var streamed = "";
     App.api.ask({
       question: q, asker: sel.asker, target: sel.target,
-      history: turns, documents: App.docs.selected(sel.target)
+      history: turns, documents: App.docs.selected(sel.target), refused_by: record.refusedBy
     }, {
       onStep: function (evt) { view.steps.step(evt); },
       onDelta: function (t) { streamed += t; showStreaming(view.answerEl, streamed); },

@@ -589,8 +589,16 @@ class Answerer:
                                        timer=timer, sources=documents)
         return self.retriever.as_passages(self.retriever.with_following(hits, top=FOLLOWING_FOR_TOP))
 
-    def suggest_divisions(self, question: str, target: Division, deadline: Optional[float] = None) -> List[str]:
+    def suggest_divisions(self, question: str, target: Division, deadline: Optional[float] = None,
+                          refused_by: Sequence[str] = ()) -> List[str]:
         """Other divisions whose best passage clears the reranker's relevance bar.
+
+        `refused_by` are divisions that already refused this question (the page
+        sends them after an "Ask … instead"); they are never suggested again.
+        Otherwise two divisions whose passages both mention the topic send the
+        visitor back and forth: after DAR-621, "lane closure" scored above
+        SUGGEST_THRESHOLD in both Work Zone and Utilities, and each refusal
+        suggested the other.
 
         Divisions are checked one after another, and the check stops when less
         than SUGGEST_MIN_SECONDS of the request is left, so a refusal that comes
@@ -600,7 +608,7 @@ class Answerer:
             return []
         suggest = []
         for division in DIVISIONS:
-            if division.id == target.id:
+            if division.id == target.id or division.id in refused_by:
                 continue
             if deadline is not None and deadline - time.monotonic() < SUGGEST_MIN_SECONDS:
                 log.info("skipping the remaining division suggestions: too little time left")
@@ -624,12 +632,13 @@ class Answerer:
 
     async def _retry(self, messages: List[Dict[str, str]], first: Completion, hits: List[Hit],
                      deadline: Optional[float], call: _Call) -> Optional[Tuple[Completion, str, List[Source]]]:
-        """Ask once more with the next model; the new answer if it is cited, else None.
+        """Ask once more with the next model: its reply and that reply graded, or None if the call failed.
 
-        An uncited answer is kept when it is the first reply, but not in place
-        of a refusal: one model saying the documents don't cover it and the
-        next answering without pointing to a passage is the case most likely
-        to come from outside the documents.
+        Only a cited answer replaces the refusal (see _answer). An uncited answer
+        is kept when it is the first reply, but not in place of a refusal: one
+        model saying the documents don't cover it and the next answering
+        without pointing to a passage is the case most likely to come from
+        outside the documents.
         """
         models = self.llm.retry_models(first.model)
         log.info("refusal despite strong retrieval (top score %.2f): retrying %s with %s",
@@ -643,22 +652,24 @@ class Answerer:
         text, sources = _grade(second.text, hits)
         log.info("retry by %s: %s", second.model,
                  "cited answer" if sources else "uncited answer, keeping the refusal" if text else "refused again")
-        return (second, text, sources) if sources else None
+        return second, text, sources
 
     async def answer(self, question: str, asker: Division, target: Division, hits: List[Hit],
                      deadline: Optional[float] = None, timer: Optional[StepTimer] = None,
-                     history: Sequence[Dict[str, str]] = ()) -> Answer:
+                     history: Sequence[Dict[str, str]] = (), refused_by: Sequence[str] = ()) -> Answer:
         """Answer from the hits.
 
         `deadline` is a time.monotonic() value that bounds the optional retry;
         `timer` records the llm, citations, retry and suggest steps; `history`
-        is the conversation so far (see build_messages).
+        is the conversation so far (see build_messages); `refused_by` are
+        divisions a refusal must not suggest (see suggest_divisions).
         """
-        return await self._answer(question, asker, target, hits, deadline, timer, history, self.llm.complete)
+        return await self._answer(question, asker, target, hits, deadline, timer, history, self.llm.complete,
+                                  refused_by)
 
     async def answer_stream(self, question: str, asker: Division, target: Division, hits: List[Hit], emit: Emit,
                             deadline: Optional[float] = None, timer: Optional[StepTimer] = None,
-                            history: Sequence[Dict[str, str]] = ()) -> Answer:
+                            history: Sequence[Dict[str, str]] = (), refused_by: Sequence[str] = ()) -> Answer:
         """answer(), passing the model's text on while it is written.
 
         emit("delta", {"text"}) gets each new piece of text to show, and
@@ -675,7 +686,7 @@ class Answerer:
                 emit("replace", {"text": ""})
             return await self._streamed(messages, models, emit)
 
-        return await self._answer(question, asker, target, hits, deadline, timer, history, call)
+        return await self._answer(question, asker, target, hits, deadline, timer, history, call, refused_by)
 
     async def _streamed(self, messages: List[Dict[str, str]], models: Optional[Sequence[str]], emit: Emit) -> Completion:
         """One streamed model call, its visible text emitted as "delta" events."""
@@ -692,7 +703,7 @@ class Answerer:
 
     async def _answer(self, question: str, asker: Division, target: Division, hits: List[Hit],
                       deadline: Optional[float], timer: Optional[StepTimer], history: Sequence[Dict[str, str]],
-                      call: _Call) -> Answer:
+                      call: _Call, refused_by: Sequence[str] = ()) -> Answer:
         """The answer, with `call` asking the model (complete(), or a streamed call)."""
         if not hits:
             return Answer(refusal_text(target, []), refused=True)
@@ -709,13 +720,17 @@ class Answerer:
             retried = True
             with timed(timer, "retry"):
                 second = await self._retry(messages, completion, hits, deadline, call)
-            if second:
+            if second and second[2]:
                 completion, text, sources = second
+            elif second:
+                # Still a refusal, now from the retry's model: name that one, so the
+                # page shows which two models refused instead of the first one twice.
+                completion = second[0]
         if not text:
             with timed(timer, "suggest"):
                 # The same text the question was searched with, so a refused follow-up is matched on its topic.
                 suggest = await asyncio.to_thread(self.suggest_divisions, self.search_query(question, history), target,
-                                                  deadline)
+                                                  deadline, refused_by)
             return Answer(refusal_text(target, suggest), refused=True, model=completion.model, suggest=suggest,
                           retried=retried, first_model=first_model)
         return Answer(text, refused=False, sources=sources, model=completion.model, retried=retried,

@@ -57,6 +57,7 @@ describe("answerAdapter", () => {
       target: "wztc",
       history: [{ question: "Where do flaggers stand?", answer: "Ahead of the work." }],
       documents: ["wztc/a.pdf"],
+      refused_by: [], // a typed question; only an "Ask … instead" carries divisions
     });
     // One yield before the first event, then one per event.
     expect(results).toHaveLength(4);

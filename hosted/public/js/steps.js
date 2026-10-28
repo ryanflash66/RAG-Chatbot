@@ -137,9 +137,14 @@
       title.textContent = typeof total === "number" ? "Done in " + R.seconds(total) : "Done";
       if (payload.model) {
         var text = modelName(payload.model), tip = payload.model;
-        if (payload.retried && payload.first_model) {
+        // `model` gave the final reply. The same model again means the retry's call
+        // failed (or the last fallback model was asked twice), so there is no "after".
+        if (payload.retried && payload.first_model && payload.first_model !== payload.model) {
           text += ", retried after " + modelName(payload.first_model);
           tip += " (retried after " + payload.first_model + ")";
+        } else if (payload.retried) {
+          text += ", retried";
+          tip += " (retried)";
         }
         meta.textContent = text;
         meta.title = tip;

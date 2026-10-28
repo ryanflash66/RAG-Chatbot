@@ -45,9 +45,13 @@ export const StepsPart: DataMessagePartComponent<StepEvent[]> = ({ data }) => {
   if (state === "done" && payload?.model) {
     model = modelName(payload.model);
     modelTip = payload.model;
-    if (payload.retried && payload.first_model) {
+    // Same rule as public/js/steps.js: "after" only when another model gave the final reply.
+    if (payload.retried && payload.first_model && payload.first_model !== payload.model) {
       model += `, retried after ${modelName(payload.first_model)}`;
       modelTip += ` (retried after ${payload.first_model})`;
+    } else if (payload.retried) {
+      model += ", retried";
+      modelTip += " (retried)";
     }
   }
 

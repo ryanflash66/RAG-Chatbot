@@ -1,6 +1,6 @@
 import type { ChatModelAdapter } from "@assistant-ui/react";
 import { selectedDocuments, useApp } from "@/state";
-import { messageText, turnsFor } from "./history";
+import { messageText, refusedByOf, turnsFor } from "./history";
 import { applyEvent, NOTHING_YET, toResult } from "./parts";
 import { ask } from "./stream";
 
@@ -20,6 +20,7 @@ export const answerAdapter: ChatModelAdapter = {
       target,
       history: turnsFor(messages, target),
       documents: selectedDocuments(app, target),
+      refused_by: refusedByOf(messages[messages.length - 1]),
     };
     let answer = NOTHING_YET;
     yield toResult(answer, target); // "Working…" from the start, before the first step arrives

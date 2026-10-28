@@ -2,7 +2,7 @@ import { type TextMessagePartComponent, useAui, useAuiState } from "@assistant-u
 import { type ComponentProps, useCallback } from "react";
 import { MarkdownText } from "@/components/assistant-ui/elements/markdown-text";
 import { Button } from "@/components/ui/button";
-import { carryForSuggestion, messageText, type QuestionMetadata } from "@/runtime/history";
+import { carryForSuggestion, messageText, refusedBySoFar, type QuestionMetadata } from "@/runtime/history";
 import { useApp } from "@/state";
 import type { AnswerMetadata, AnswerPayload } from "@/types";
 import { CITE_PREFIX, linkCitations, searchedText } from "./format";
@@ -78,7 +78,10 @@ function Refusal({ text, payload }: { text: string; payload: AnswerPayload }) {
     const messages = thread.getState().messages;
     const question = messages[index - 1];
     if (!question || question.role !== "user") return;
-    const custom: QuestionMetadata = { carry: carryForSuggestion(messages, index) };
+    const custom: QuestionMetadata = {
+      carry: carryForSuggestion(messages, index),
+      refusedBy: refusedBySoFar(messages, index),
+    };
     useApp.getState().setTarget(targetId);
     thread.append({ role: "user", content: [{ type: "text", text: messageText(question) }], metadata: { custom } });
   };

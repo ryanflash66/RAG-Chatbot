@@ -505,6 +505,20 @@ def test_a_streamed_refusal_refused_again_suggests_another_division(api):
     assert [o for o in order if o.endswith(":pending")] == PENDING
 
 
+def test_a_refusal_after_ask_instead_does_not_suggest_the_divisions_that_refused(api):
+    client, retriever, llm = api
+    retriever.reranker = object()  # every division's passage scores 2.0, so each would be suggested
+    llm.reply = NOT_FOUND
+    body = {"question": "When is a lane closure required?", "asker": "wztc", "target": "utilities",
+            "refused_by": ["wztc", "no-such-division"]}
+
+    for path in ("/api/ask", "/api/ask/stream"):
+        response = client.post(path, json=body)
+        done = response.json() if path == "/api/ask" else _events(response)[-1][1]
+        assert done["refused"] is True
+        assert [s["id"] for s in done["suggest"]] == ["tmsd"]  # Work Zone refused already; the unknown id is ignored
+
+
 def test_the_stream_lists_the_expected_steps_as_pending_before_the_first_starts(api, monkeypatch):
     client, retriever, _ = api
 
