@@ -1,0 +1,1990 @@
+{
+ "description": "Questions for the RAG evaluation (python -m evaluation.run_ragas), built by python -m evaluation.build_testset; see the module docstring for the sources. `pages` are PDF pages; pages_mode 'all' means every page is needed, 'any' that each page holds the answer on its own.",
+ "items": [
+  {
+   "id": "B1",
+   "question": "At what distance from a travel lane does utility work require a lane closure?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#B1",
+    "hosted/RESULTS-local.md#B1",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#9"
+   ],
+   "pages": [
+    126
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "5 ft undivided / 10 ft divided.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "B2",
+   "question": "If utility work blocks a sidewalk for 7 work days or more, what is required?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#B2",
+    "hosted/RESULTS-local.md#B2",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#8"
+   ],
+   "pages": [
+    127
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "TMP by a licensed NC PE for pedestrian/ADA access.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "B3",
+   "question": "Who pays for a detour when a utility closes a road?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#B3",
+    "hosted/RESULTS-local.md#B3"
+   ],
+   "pages": [
+    127
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Encroaching party reimburses NCDOT for detour costs (NCDOT approves the route first).",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "B4",
+   "question": "What is the minimum cover for a utility installed by bore and jack?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#B4",
+    "hosted/RESULTS-local.md#B4",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#5"
+   ],
+   "pages": [
+    101
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "3 feet.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "B5",
+   "question": "What is the maximum depth of an open-cut trench without extra approval, and what compaction is required for backfill?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#B5",
+    "hosted/RESULTS-local.md#B5",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#7"
+   ],
+   "pages": [
+    132
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "10 ft (deeper needs State Utilities Manager approval); 95% of standard density, AASHTO T-99, 6-in layers.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "B6",
+   "question": "How much advance notice does NCDOT need before a utility owner does maintenance work in right of way?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#B6",
+    "hosted/RESULTS-local.md#B6",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#6"
+   ],
+   "pages": [
+    18
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "3 days.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "B7",
+   "question": "How must pavement be repaired after an open cut across an asphalt road?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#B7",
+    "hosted/RESULTS-local.md#B7"
+   ],
+   "pages": [
+    133
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Min. 3 in surface (S9.5B/C) + base (B25.0C) to subgrade, or 8 in, whichever is greater; extends 1 ft each side.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "B8",
+   "question": "Can a utility owner work in a median?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#B8",
+    "hosted/RESULTS-local.md#B8"
+   ],
+   "pages": [
+    75
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "No utility work in medians narrower than twice the clear zone + work width.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "X1",
+   "question": "My TMP closes the shoulder for 3 days for a utility crossing. What lane closure, notification, and pedestrian rules apply to the utility owner, and who pays for a detour?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#X1",
+    "hosted/RESULTS-local.md#X1"
+   ],
+   "pages": [
+    126,
+    127
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "UAM: lane closure within 5/10 ft; notify the Division Engineer unless under a blanket agreement; 1-7 work days: close the sidewalk and detour/divert with ADA barricades; the encroaching party pays for a detour.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "X2",
+   "question": "Can a utility owner's crew park equipment in the clear zone overnight inside my work zone, and what must they do with equipment outside working hours?",
+   "target": "utilities",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#X2",
+    "hosted/RESULTS-local.md#X2"
+   ],
+   "pages": [
+    127
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "No; outside working hours, equipment is barricaded outside the clear zone near the R/W line.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A1",
+   "question": "What counts as intermediate-term stationary work?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A1",
+    "hosted/RESULTS-local.md#A1",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#1"
+   ],
+   "pages": [
+    12
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "More than one daylight period up to 3 days, or night work over 1 hour.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A2",
+   "question": "What lane width is used in a freeway or divided highway work zone?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A2",
+    "hosted/RESULTS-local.md#A2",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#2"
+   ],
+   "pages": [
+    22
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "11 ft lanes + 2 ft shoulder or 2 ft offset to positive protection.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A3",
+   "question": "What is the minimum acceleration lane for an interstate entrance ramp in a work zone?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A3",
+    "hosted/RESULTS-local.md#A3",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#3",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#1"
+   ],
+   "pages": [
+    72
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "400 ft acceleration lane + 300 ft merge taper, else close the ramp.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A4",
+   "question": "What are the dimensions of the NC-PCB concrete barrier?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A4",
+    "hosted/RESULTS-local.md#A4",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#4"
+   ],
+   "pages": [
+    32,
+    33
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "10 ft long, 24 in base, 32 in high, New Jersey shape, about 3,900 lb.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A5",
+   "question": "When must portable concrete barrier on a bridge deck be anchored?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A5",
+    "hosted/RESULTS-local.md#A5",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#5",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#2"
+   ],
+   "pages": [
+    46
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Anchored when back of barrier to deck edge is 6 ft or less.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A6",
+   "question": "How long can a work zone speed reduction using portable devices stay in place?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A6",
+    "hosted/RESULTS-local.md#A6",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#6",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#3"
+   ],
+   "pages": [
+    75
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Up to 30 days.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A7",
+   "question": "What is the run-out length at 55 mph with 2,000 to 6,000 vpd?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A7",
+    "hosted/RESULTS-local.md#A7",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#7"
+   ],
+   "pages": [
+    53
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "345 ft.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A8",
+   "question": "What are the flare rates at 55 mph for anchored and unanchored barrier?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A8",
+    "hosted/RESULTS-local.md#A8",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#8",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#4"
+   ],
+   "pages": [
+    54
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "16:1 anchored, 12:1 unanchored.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "A9",
+   "question": "Can I use an anchored water-filled barrier at 55 mph?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#A9",
+    "hosted/RESULTS-local.md#A9",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#13",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#10"
+   ],
+   "pages": [
+    34,
+    49
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "No: water-filled barrier is for 45 mph or less and has no anchoring system.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "X3",
+   "question": "Our utility crew will leave a drop-off of more than 12 inches within 10 feet of the travel lane for 5 days on a road under 45 mph. What does the work zone manual require?",
+   "target": "wztc",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#X3",
+    "hosted/RESULTS-local.md#X3",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#11"
+   ],
+   "pages": [
+    16,
+    17
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "TMP 2.4 D: barrier, or 6:1 wedge, or shift traffic 6 ft; over 3 days requires barrier; W8-9a signs 500 ft ahead and every half mile.",
+   "reference_from": "hosted/RESULTS-local.md expected"
+  },
+  {
+   "id": "T1",
+   "question": "How long does short duration work occupy a location?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T1"
+   ],
+   "key": "occupies a location up to one (1) hour",
+   "reference": "Short Duration – Work that occupies a location up to one (1) hour.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    12
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T2",
+   "question": "What is the preferred minimum offset between temporary barrier and the traveled way?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T2"
+   ],
+   "key": "minimum offset of 2 feet between the barrier and the traveled way",
+   "reference": "5.8.1.3 Minimum Lateral Offset from Traffic As a general rule, a minimum offset of 2 feet between the barrier and the traveled way is preferred.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    44
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T3",
+   "question": "What shoulder condition can justify a work zone speed reduction?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T3"
+   ],
+   "key": "eliminates a usuable outside shoulder",
+   "reference": "The work zone eliminates a usuable outside shoulder (less than 8’) AND either permanent barrier/guardrail/guiderail or temporary barrier/guardrail/guiderail prevents vehicle pull-off into the median for a distance greater than ½ mile.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    78
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T4",
+   "question": "Where does the $250 fine zone begin on a project?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T4"
+   ],
+   "key": "location for the $250 fine is the place where",
+   "reference": "The “begin” location for the $250 fine is the place where the “BEGIN ROAD WORK” sign is located and the associated “BEGIN $250 FINE” sign is mounted below it.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    80,
+    81
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T5",
+   "question": "How much working area is typically required between bridges?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T5"
+   ],
+   "key": "five (5) feet minimum of working area is required between bridges",
+   "reference": "Typically, five (5) feet minimum of working area is required between bridges.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    91
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T6",
+   "question": "How long is a lane closure on a multilane facility usually limited to?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T6"
+   ],
+   "key": "limit of approximately 1 mile for a lane closure",
+   "reference": "Often for multilane facilities there will be a limit of approximately 1 mile for a lane closure.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    158
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T7",
+   "question": "What dollar basis is used to determine user cost for a lane closure?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T7"
+   ],
+   "key": "135% of 1981 dollars",
+   "reference": "- Currently, we use 135% of 1981 dollars to determine the usercost.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    158
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T8",
+   "question": "How does drainage portable concrete barrier let water through?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T8"
+   ],
+   "key": "drainage slot at the base of the barrier",
+   "reference": "Drainage PCB is designed with a drainage slot at the base of the barrier that permits water to flow through the bottom of barrier.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    49
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T9",
+   "question": "What alternatives to temporary barrier can be used to protect a hazard?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T9"
+   ],
+   "key": "drums for delineation, portable changeable message signs",
+   "reference": "th of hazard - Proximity between traffic and construction workers and/or equipment - Adverse geometrics which may increase the likelihood of run-off-the-road - vehicles Consult with your supervisor for alternatives to barrier that can be used, e.g., drums for delineation, portable changeable message signs to alert the motorist and a TMA to shield the hazard.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    41
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T10",
+   "question": "Who must approve speed reduction and $250 fine signs before they are installed?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T10"
+   ],
+   "key": "must be approved first by the State traffic Engineer",
+   "reference": "All of these types of signs must be approved first by the State traffic Engineer before they can be implemented.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    75
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T11",
+   "question": "When can a private engineering firm be paid beyond the Pre-Final TMP?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T11"
+   ],
+   "key": "Payment beyond the Pre-Final TMP will not be approved until after the Pre-Let Field Inspection",
+   "reference": "(PEF ONLY) Payment beyond the Pre-Final TMP will not be approved until after the Pre-Let Field Inspection.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    141
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T12",
+   "question": "What drop-off criteria does West Virginia use for temporary positive protection?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T12"
+   ],
+   "key": "project duration > 48 hours",
+   "reference": "|West Virginia|Drop-off depth > 3 inches, project duration > 48 hours, speed limit > 45 mph, located within 30 feet of travel way on multilane highways, located within 20 feet of travel way on undivided highways|",
+   "reference_from": "index text holding the key",
+   "pages": [
+    64
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T13",
+   "question": "Who signs the ordinance for a work zone variable speed limit?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T13"
+   ],
+   "key": "ordinanced by the Regional Traffic Engineer and signed by the State Traffic Engineer",
+   "reference": "When appropriate, the Work Zone “Variable” Speed Limit will be ordinanced by the Regional Traffic Engineer and signed by the State Traffic Engineer.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    83
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T14",
+   "question": "Does a work zone variable speed reduction cover the whole project?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T14"
+   ],
+   "key": "Only the specific portion of the work zone where conditions warrant",
+   "reference": "Only the specific portion of the work zone where conditions warrant or restrictive features are present shall receive consideration for the speed reduction.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    77,
+    82
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T15",
+   "question": "What happens to the existing speed limit signs while a work zone variable speed limit is in effect?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T15"
+   ],
+   "key": "all existing stationary speed limit signs shall be covered",
+   "reference": "When a work zone “variable” speed limit is in affect, all existing stationary speed limit signs shall be covered.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    85
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T16",
+   "question": "How is law enforcement paid for in the traffic control estimate?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T16"
+   ],
+   "key": "paid for in the number of hours law enforcement usage",
+   "reference": "“Law Enforcement” is a Traffic Control contract pay item and is paid for in the number of hours law enforcement usage is deemed necessary for a given project.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    70
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T17",
+   "question": "What color are pedestrian crossing signs?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T17"
+   ],
+   "key": "pedestrian crossing signs (fluorescent yellow-green)",
+   "reference": "Grade B shall be used for all school zone signs, bicycle and pedestrian crossing signs (fluorescent yellow-green); and highway-rail crossing signs (fluorescent yellow).",
+   "reference_from": "index text holding the key",
+   "pages": [
+    99
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T18",
+   "question": "How does the manual define an exit ramp?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T18"
+   ],
+   "key": "the motorist is encouraged to decelerate in order to stop",
+   "reference": "Exit Ramp – The portion of a ramp that, in the flow of traffic, the motorist is encouraged to decelerate in order to stop at the intersection of another roadway.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    72
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T19",
+   "question": "In the long-term lane closure example for user costs, what are the hours of actual work activity?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T19"
+   ],
+   "key": "hours of actual work activity might be only from 7:00 am to 4:00 pm",
+   "reference": "- For example, long-term lane closures may be implemented during a construction activity, for which lanes are closed from midnight to midnight on any given day, but the hours of actual work activity might be only from 7:00 am to 4:00 pm.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    156
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T20",
+   "question": "Where do I get the road grade to enter for a flagging operation's user cost?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T20"
+   ],
+   "key": "In the Grade % box, input the average grade",
+   "reference": "- Step 8: In the Grade % box, input the average grade of the road that will be flagged.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    153
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T21",
+   "question": "Which barrier types must be placed on a paved surface?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T21"
+   ],
+   "key": "PCB, QMB and water-filled barrier must be placed on a paved surface",
+   "reference": "Per the Roadside Design Guide, “When barrier is placed on slopes steeper than 10H:1V, studies have shown that for certain encroachment angles and speeds an errant vehicle may go over many standard roadside barriers or impact them too low.” Since PCB, QMB and water-filled barrier must be placed on a paved surface, slope will probably not be an issue.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    43,
+    45
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T22",
+   "question": "Which TMP sheet shows thermoplastic rumble strip placement?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T22"
+   ],
+   "key": "TMP-2D Thermoplastic Rumble Strip Placement",
+   "reference": "List not inclusive) – Use as needed – Number sheets accordingly - TMP-2 Portable Concrete Barrier at Temporary Shoring Locations - TMP-2A Temporary Shoring Data - TMP-2B “Work Zone” Speed Limit Reduction - TMP-2C Sign Designs (for Speed Reduction) - TMP-2D Thermoplastic Rumble Strip Placement - TMP-2E Thermoplastic Rumble Strips for Signalized Intersection Alert - • TMP-2F Special Sign Design(s) TMP-3 Series of Sheets: (Phasing) Note: Phasing for small projects (i.e.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    120,
+    121,
+    122
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T23",
+   "question": "What is the intermediate course of a pavement structure?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T23"
+   ],
+   "key": "between the surface course and the base course",
+   "reference": "Intermediate Course – The part of the pavement structure between the surface course and the base course (not used in all cases).",
+   "reference_from": "index text holding the key",
+   "pages": [
+    109
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T24",
+   "question": "What is a temporary traffic signal?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T24"
+   ],
+   "key": "installed for a limited time period then removed",
+   "reference": "Temporary Traffic Signal – A traffic signal that is installed for a limited time period then removed when conditions no longer warrant a signal.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    94
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T25",
+   "question": "What should I do when the most appropriate Roadway Standard Drawing doesn't fit my work zone?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T25"
+   ],
+   "key": "signs may need to be added, removed, or changed",
+   "reference": "In some cases, the most appropriate RSD will not exactly fit the design required for the work zone, so signs may need to be added, removed, or changed to accommodate the needs of the work zone.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    100
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T26",
+   "question": "What pedestrian issues should the plan developer look for when reviewing the project site?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T26"
+   ],
+   "key": "existing sidewalks, worn footpaths, schools",
+   "reference": "Are there existing sidewalks, worn footpaths, schools, or other areas that are likely to attract pedestrians? - Are there any other observations that could impact the project? After analyzing these potential issues, the plan developer should establish a general traffic management strategy for construct",
+   "reference_from": "index text holding the key",
+   "pages": [
+    128
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "T27",
+   "question": "What clear zone does the chart give for 55 mph and 750 to 1,500 ADT with a 1V:6H or flatter foreslope?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#T27"
+   ],
+   "key": "|55|750-1500|16 – 18|",
+   "reference": "|55|750-1500|16 – 18|20 – 24|*|10 – 12|14 – 16|16 – 18|",
+   "reference_from": "index text holding the key",
+   "pages": [
+    53,
+    58
+   ],
+   "pages_mode": "any",
+   "pages_from": "case"
+  },
+  {
+   "id": "U1",
+   "question": "Will NCDOT pay to relocate an abandoned or out-of-service utility facility?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U1"
+   ],
+   "key": "does not accept financial responsibility to adjust or relocate an inactive",
+   "reference": "With the exception of a construction need, NCDOT does not accept financial responsibility to adjust or relocate an inactive, out-of-service, or abandoned facility.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    141
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U2",
+   "question": "Who gets the railroad permit when a utility relocation has to occupy railroad right of way?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U2"
+   ],
+   "key": "responsible for obtaining permits to occupy railroad right of way",
+   "reference": "4.3.5.3 Railroad Permits The utility is responsible for obtaining permits to occupy railroad right of way and must do so in a time frame to accommodate the project schedule.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    158
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U3",
+   "question": "What is pipe ramming?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U3"
+   ],
+   "key": "dynamic energy from a percussion hammer",
+   "reference": "3.6.8.3 Pipe Ramming Pipe ramming is a technique for installing steel casing or carrier pipe from an entry pit to a receiving pit using the dynamic energy from a percussion hammer attached to the end of the pipe.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    129
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U4",
+   "question": "How far below a bridge superstructure must a power line installed under the bridge be?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U4"
+   ],
+   "key": "minimum distance of 10 feet below any part of the superstructure",
+   "reference": "- When a power line, regardless of voltage, is to be installed transversely under the superstructure of an existing bridge, the vertical clearance of the lowest wire aboveground is to conform with the NESC, and the highest wire is to be a minimum distance of 10 feet below any part of the superstructure of the bridge.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    122
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U5",
+   "question": "Who reviews street lighting encroachment requests?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U5"
+   ],
+   "key": "All street lighting requests must be reviewed by the Utilities Unit",
+   "reference": "2.5.3 Street Lighting Encroachment Requests All street lighting requests must be reviewed by the Utilities Unit via the State Utilities Manager.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    52
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U6",
+   "question": "Does the bonding company for a performance bond need an office in North Carolina?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U6"
+   ],
+   "key": "must be a company with offices in North Carolina",
+   "reference": "- Where performance bonds are furnished, they must be signed by an authorized agent of the surety/bonding company, which must be a company with offices in North Carolina, and a Power of Attorney authorizing the signatory to sign must be attached to the bond.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    67
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U7",
+   "question": "Which form is the two-party encroachment agreement for utilities on primary and secondary highways?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U7"
+   ],
+   "key": "R/W 16.1 is a two-party Encroachment Agreement",
+   "reference": "d directly below each signature 2.3.1.3 Forms The following forms (provided in Appendix C) shall be used for utility Encroachment Agreement requests: - R/W 16.1 - Encroachment Agreement for Utilities on Primary and Secondary Highways Form R/W 16.1 is a two-party Encroachment Agreement between NCDOT and the utility owner used for the installation of utility facilities within non-controlled of access rights of way.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    32
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U8",
+   "question": "What goes in the Project field of the encroachment agreement form?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U8"
+   ],
+   "key": "the NCDOT project number should be placed in this field",
+   "reference": "_Project_ If the encroachment being requested is located within the limits of an NCDOT project, the NCDOT project number should be placed in this field (e.g., U-2134, R-5631AB).",
+   "reference_from": "index text holding the key",
+   "pages": [
+    30,
+    35,
+    199
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U9",
+   "question": "What counts as an improvement project when relocating utilities under G.S. 136-27.1?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U9"
+   ],
+   "key": "installs new state facilities or increases the size, capacity, or footprint",
+   "reference": "For the purposes of this section, an “improvement project” is one that installs new state facilities or increases the size, capacity, or footprint of existing state facilities.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    160,
+    161
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U10",
+   "question": "What counts as broadband conduit under the broadband policy?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U10"
+   ],
+   "key": "conduit, pipe, innerduct, or microduct",
+   "reference": "For the purpose of this policy, “broadband conduit” is considered conduit, pipe, innerduct, or microduct for fiber optic or other cables that accommodate current or future broadband and wireless facilities for broadband service.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    180,
+    266
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U11",
+   "question": "For a right of way grading encroachment that the Division Engineer thinks has merit, what must the applicant furnish?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U11"
+   ],
+   "key": "furnish the engineered plans and adequate cross-sections",
+   "reference": "If the Division Engineer considers the request to have merit, the Division Engineer shall have the applicant furnish the engineered plans and adequate cross-sections to show the alterations proposed.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    39
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U12",
+   "question": "Can overhead power line crossings be covered by a Blanket Encroachment Agreement?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U12"
+   ],
+   "key": "may be authorized by Blanket Encroachment Agreement on all highways open to traffic except controlled access",
+   "reference": "Overhead crossings of NCDOT right of way, such as power, telephone, and cablevision, regardless of voltage or carrying capacity, may be authorized by Blanket Encroachment Agreement on all highways open to traffic except controlled access highways.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    45
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U13",
+   "question": "Which guidelines govern the vertical clearance of aboveground utility facilities?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U13"
+   ],
+   "key": "Vertical clearance and locations of aboveground utility facilities shall be in conformance with AASHTO and FHWA",
+   "reference": "3.3.1.3 AASHTO and FHWA Guidelines and Regulations Vertical clearance and locations of aboveground utility facilities shall be in conformance with AASHTO and FHWA (Clear Zones) guidelines and regulations.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    83
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U14",
+   "question": "When must the performance bond for an encroachment agreement be submitted?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U14"
+   ],
+   "key": "a performance bond shall be submitted to and retained by the Division Engineer prior to authorization for construction",
+   "reference": "Upon approval of the executed Encroachment Agreement, a performance bond shall be submitted to and retained by the Division Engineer prior to authorization for construction.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    40
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U15",
+   "question": "Can a small cell installation use a permanent generator or batteries in the right of way?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U15"
+   ],
+   "key": "Permanent power generators will not be allowed",
+   "reference": "Power Supplies Permanent power generators will not be allowed in NCDOT right of way.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    93
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U16",
+   "question": "What is a Utility Relocation Agreement?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U16"
+   ],
+   "key": "reimbursement agreement covering utilities relocated because of a highway project",
+   "reference": "4.5.1.5 Utility Relocation Agreement A Utility Relocation Agreement is a reimbursement agreement covering utilities relocated because of a highway project and that are being relocated at NCDOT’s expense.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    168
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U17",
+   "question": "Do utility facilities relocated on a federal-aid project have to meet Buy America?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U17"
+   ],
+   "key": "subject to Buy America Provisions",
+   "reference": "All facilities relocated as the result of a project receiving Federal aid are subject to Buy America Provisions.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    168
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U18",
+   "question": "When do safety precautions for utility work on a highway project start?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U18"
+   ],
+   "key": "Safety precautions actually begin in the planning stages",
+   "reference": "Safety precautions actually begin in the planning stages of both transportation projects and utility adjustments because the design of both types of work must take into consideration the method and timing of the work.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    177
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U19",
+   "question": "Who is the intended audience of the Utilities Accommodation Manual?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U19"
+   ],
+   "key": "primary intended audience of this UAM is Utility Coordinators",
+   "reference": "The primary intended audience of this UAM is Utility Coordinators within NCDOT, Utility Coordinators in firms working for NCDOT, Division and Utilities Unit management, and personnel of the utility companies working with NCDOT on relocations.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    144
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U20",
+   "question": "When is a replacement pole for small cell equipment treated as a new pole?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U20"
+   ],
+   "key": "not deemed reasonably close to the existing pole location shall be considered a new pole",
+   "reference": "- A proposed pole whose location is not deemed reasonably close to the existing pole location shall be considered a new pole.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    90
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U21",
+   "question": "What is a wet utility?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U21"
+   ],
+   "key": "General reference to water, gravity sewer and force mains",
+   "reference": "Wet utility General reference to water, gravity sewer and force mains.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    191
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U22",
+   "question": "What vertical dimensions must encroachment plans show?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U22"
+   ],
+   "key": "vertical dimension from bottom of road ditches and from surface of pavement",
+   "reference": "A vertical dimension from bottom of road ditches and from surface of pavement to encroaching structures.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    215,
+    232
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "U23",
+   "question": "What processing fee comes with a right of way grading encroachment agreement?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": true,
+   "group": "known-page",
+   "origin": [
+    "eval/retrieval_pages.json#U23"
+   ],
+   "key": "$1,500 non-refundable processing fee",
+   "reference": "Utilities Accommodation Manual Encroachment A $1,500 non-refundable processing fee is required with the submittal of this Encroachment Agreement.",
+   "reference_from": "index text holding the key",
+   "pages": [
+    39
+   ],
+   "pages_mode": "any",
+   "pages_from": "chunks holding the key"
+  },
+  {
+   "id": "Q1",
+   "question": "What's the clear-zone width for a work zone with a speed of 55 mph?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    59
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 9-1: 90 km/h 7 m [55 mph] [23 ft].",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "23 f"
+    ],
+    [
+     "23f"
+    ],
+    [
+     "23-f"
+    ],
+    [
+     "23'"
+    ]
+   ],
+   "reject": [
+    [
+     "23 m"
+    ]
+   ],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q1"
+   ]
+  },
+  {
+   "id": "Q2",
+   "question": "What clear-zone width is recommended for a work zone at 30–40 mph?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    59
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 9-1: 50-60 km/h 4 m [30-40 mph] [13 ft].",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "13 f"
+    ],
+    [
+     "13f"
+    ],
+    [
+     "13-f"
+    ],
+    [
+     "13'"
+    ]
+   ],
+   "reject": [
+    [
+     "13 m"
+    ]
+   ],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q2"
+   ]
+  },
+  {
+   "id": "Q3",
+   "question": "According to the manual, what drop-off criteria does Florida use for temporary positive protection?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    64
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 17: Florida - drop-off depth > 3 inches, located within 12 feet, project duration > 1 day.",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "3 in",
+     "12 f",
+     "1 day"
+    ],
+    [
+     "3 in",
+     "1 2 f",
+     "1 day"
+    ],
+    [
+     "3 in",
+     "12 f",
+     "one day"
+    ],
+    [
+     "3\"",
+     "12 f",
+     "1 day"
+    ]
+   ],
+   "reject": [],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q3"
+   ]
+  },
+  {
+   "id": "Q4",
+   "question": "Which states require a drop-off depth greater than 2 feet?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    64
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 17: New York and Texas list 'Drop-off depth > 2 feet'.",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "new york",
+     "texas"
+    ]
+   ],
+   "reject": [],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q4"
+   ]
+  },
+  {
+   "id": "Q5",
+   "question": "What's the curve correction factor for a 1,640 ft radius at 60 mph?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    59
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 3-2: radius 1640 ft row, 60 mph column = 1.3.",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "1.3"
+    ]
+   ],
+   "reject": [],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q5"
+   ]
+  },
+  {
+   "id": "Q6",
+   "question": "At 70 mph, what's the smallest radius the table gives a correction factor for?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    59
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 3-2: the 70 mph column has values down to the 1640 ft row (1.5); smaller radii are '--'.",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "1640"
+    ],
+    [
+     "1,640"
+    ]
+   ],
+   "reject": [],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q6"
+   ]
+  },
+  {
+   "id": "Q7",
+   "question": "What's the clear-zone distance for 55 mph, ADT 1,500–6,000, with a 1V:6H or flatter foreslope?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    58
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Clear zone, 55 mph, 1,500 to 6,000 ADT, 1V:6H foreslope: 20 to 22 ft.",
+   "reference_from": "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md",
+   "accept": [
+    [
+     "20-22"
+    ],
+    [
+     "20 to 22"
+    ],
+    [
+     "20 and 22"
+    ]
+   ],
+   "reject": [],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q7",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#10"
+   ]
+  },
+  {
+   "id": "Q8",
+   "question": "For 45–50 mph and ADT over 6,000, what's the clear zone for a 1V:5H to 1V:4H foreslope?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    58
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 3-1: 45-50 mph, over 6000 ADT, 1V:5H to 1V:4H foreslope = 24-28 ft.",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "24-28"
+    ],
+    [
+     "24 to 28"
+    ],
+    [
+     "24 and 28"
+    ]
+   ],
+   "reject": [],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q8"
+   ]
+  },
+  {
+   "id": "H1",
+   "question": "What's the curve correction factor for a 950 ft radius at 50 mph?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    59
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 3-2: radius 950 ft row, 50 mph column = 1.4 (45 mph = 1.3, 55 mph = 1.5).",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "1.4"
+    ]
+   ],
+   "reject": [
+    [
+     "1.3"
+    ],
+    [
+     "1.5"
+    ]
+   ],
+   "holdout": true,
+   "origin": [
+    "eval/table_questions.json#H1"
+   ]
+  },
+  {
+   "id": "H2",
+   "question": "What's the clear-zone distance for 60 mph, ADT under 750, with a 1V:6H or flatter foreslope?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    58
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 3-1: 60 mph, UNDER 750 ADT, 1V:6H or flatter foreslope = 16-18 ft.",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "16-18"
+    ],
+    [
+     "16 to 18"
+    ],
+    [
+     "16 and 18"
+    ]
+   ],
+   "reject": [
+    [
+     "12-14"
+    ]
+   ],
+   "holdout": true,
+   "origin": [
+    "eval/table_questions.json#H2"
+   ]
+  },
+  {
+   "id": "H3",
+   "question": "What run-out length should I use for barrier design at 60 mph with over 6,000 vpd?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    53
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Figure 17 run-out length table: 60 mph, over 6000 vpd = 425 ft (70 mph = 475 ft).",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "425"
+    ]
+   ],
+   "reject": [
+    [
+     "475"
+    ]
+   ],
+   "holdout": true,
+   "origin": [
+    "eval/table_questions.json#H3"
+   ]
+  },
+  {
+   "id": "H4",
+   "question": "What drop-off criteria does California use for temporary positive protection?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    64
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Table 17: California: drop-off depth > 6 inches, within 8 feet of travel way; special engineering consideration for drop-offs > 2.5 feet.",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "6 in",
+     "8 f"
+    ]
+   ],
+   "reject": [],
+   "holdout": true,
+   "origin": [
+    "eval/table_questions.json#H4"
+   ]
+  },
+  {
+   "id": "H5",
+   "question": "At 45 mph, what run-out length applies for 800-2000 vpd?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "table",
+   "pages": [
+    53
+   ],
+   "pages_mode": "all",
+   "pages_from": "case",
+   "reference": "Figure 17 run-out length table: 45 mph, 800-2000 vpd = 215 ft.",
+   "reference_from": "eval/table_questions.json note",
+   "accept": [
+    [
+     "215"
+    ]
+   ],
+   "reject": [
+    [
+     "245"
+    ],
+    [
+     "260"
+    ]
+   ],
+   "holdout": true,
+   "origin": [
+    "eval/table_questions.json#H5"
+   ]
+  },
+  {
+   "id": "Q9",
+   "question": "What's the company's password reset policy?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": false,
+   "group": "negative",
+   "pages": [],
+   "pages_mode": "all",
+   "pages_from": null,
+   "reference": null,
+   "reference_from": null,
+   "accept": [
+    [
+     "not contain"
+    ],
+    [
+     "doesn't contain"
+    ],
+    [
+     "no information"
+    ],
+    [
+     "not mention"
+    ],
+    [
+     "no mention"
+    ],
+    [
+     "not provide"
+    ],
+    [
+     "doesn't provide"
+    ],
+    [
+     "not include"
+    ],
+    [
+     "doesn't include"
+    ],
+    [
+     "not cover"
+    ],
+    [
+     "doesn't cover"
+    ],
+    [
+     "not specif"
+    ],
+    [
+     "not in the context"
+    ],
+    [
+     "not in the provided"
+    ],
+    [
+     "not found in"
+    ],
+    [
+     "no details"
+    ],
+    [
+     "no relevant"
+    ]
+   ],
+   "reject": [
+    [
+     "characters"
+    ],
+    [
+     "must be reset"
+    ],
+    [
+     "must be changed"
+    ],
+    [
+     "expire"
+    ],
+    [
+     "every",
+     "days"
+    ],
+    [
+     "policy is"
+    ],
+    [
+     "policy requires"
+    ]
+   ],
+   "holdout": false,
+   "origin": [
+    "eval/table_questions.json#Q9"
+   ]
+  },
+  {
+   "id": "N1",
+   "question": "What is the hourly rate for law enforcement?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": false,
+   "group": "negative",
+   "pages": [],
+   "pages_mode": "all",
+   "pages_from": null,
+   "reference": null,
+   "reference_from": null,
+   "expected_behavior": "Not in the TMP manual",
+   "origin": [
+    "hosted/RESULTS-local.md#N1",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#14",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#11"
+   ]
+  },
+  {
+   "id": "N2",
+   "question": "What are the HAWKS scoring criteria and threshold?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": false,
+   "group": "negative",
+   "pages": [],
+   "pages_mode": "all",
+   "pages_from": null,
+   "reference": null,
+   "reference_from": null,
+   "expected_behavior": "Not in the TMP manual (test set negative)",
+   "origin": [
+    "hosted/RESULTS-local.md#N2",
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#15"
+   ]
+  },
+  {
+   "id": "N3",
+   "question": "What is the hourly rate for law enforcement?",
+   "target": "utilities",
+   "asker": "utilities",
+   "answerable": false,
+   "group": "negative",
+   "pages": [],
+   "pages_mode": "all",
+   "pages_from": null,
+   "reference": null,
+   "reference_from": null,
+   "expected_behavior": "Not in the UAM",
+   "origin": [
+    "hosted/RESULTS-local.md#N3"
+   ]
+  },
+  {
+   "id": "N4",
+   "question": "What is the minimum cover for a utility installed by bore and jack?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": false,
+   "group": "negative",
+   "pages": [],
+   "pages_mode": "all",
+   "pages_from": null,
+   "reference": null,
+   "reference_from": null,
+   "expected_behavior": "Bore-and-jack cover is a Utilities rule, not in the TMP manual",
+   "origin": [
+    "hosted/RESULTS-local.md#N4",
+    "ncdot-agentic-ai/evaluation/demo_questions_v1.md#12"
+   ]
+  },
+  {
+   "id": "TMP9",
+   "question": "What impact angle and maximum deflection does the NC-PCB deflection chart give for barrier on asphalt at a 20 ft offset and 60 mph, and what is the deflection on concrete?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "tmp",
+   "pages": [
+    37,
+    38
+   ],
+   "pages_mode": "all",
+   "pages_from": "TMP test set, mapped to PDF pages (checked in the index text)",
+   "reference": "NC-PCB on asphalt, 20 ft offset, 60 mph: 11.5 degrees, 35.89 in (concrete: 25.37 in).",
+   "reference_from": "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md",
+   "origin": [
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#9"
+   ]
+  },
+  {
+   "id": "TMP12",
+   "question": "A 70 mph interstate work zone is 4 miles long, lasts 8 months, has 20% trucks and a crash rate above the statewide rate. Does it qualify for a work zone speed limit reduction, how big a reduction can be used, and does the $250 fine apply?",
+   "target": "wztc",
+   "asker": "wztc",
+   "answerable": true,
+   "group": "tmp",
+   "pages": [
+    77,
+    78,
+    79,
+    80
+   ],
+   "pages_mode": "all",
+   "pages_from": "TMP test set, mapped to PDF pages (checked in the index text)",
+   "reference": "70 mph interstate, 4 mi, 8 months, 20% trucks, crash rate above statewide: qualifies; max 15 mph reduction (typical 10); $250 fine applies.",
+   "reference_from": "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md",
+   "origin": [
+    "ncdot-agentic-ai/evaluation/tmp_manual_test_set_v1.md#12"
+   ]
+  }
+ ]
+}
