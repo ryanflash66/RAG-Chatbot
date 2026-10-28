@@ -76,8 +76,7 @@ export const StepsPart: DataMessagePartComponent<StepEvent[]> = ({ data }) => {
       </button>
       <ol className="steps-list" id={listId} hidden={!open}>
         {steps.map((step) => {
-          // A pending step hasn't started, so it is never shown running or failed; the
-          // three icons themselves are DAR-634's parity work with public/css/steps.css.
+          // A pending step hasn't started, so it is never shown running or failed.
           const shown =
             step.status === "done"
               ? "done"

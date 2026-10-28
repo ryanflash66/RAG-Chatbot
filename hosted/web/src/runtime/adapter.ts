@@ -23,10 +23,10 @@ export const answerAdapter: ChatModelAdapter = {
       refused_by: refusedByOf(messages[messages.length - 1]),
     };
     let answer = NOTHING_YET;
-    yield toResult(answer, target); // "Working…" from the start, before the first step arrives
+    yield toResult(answer, target, asker); // "Working…" from the start, before the first step arrives
     for await (const event of ask(request, abortSignal)) {
       answer = applyEvent(answer, event);
-      yield toResult(answer, target);
+      yield toResult(answer, target, asker);
     }
   },
 };

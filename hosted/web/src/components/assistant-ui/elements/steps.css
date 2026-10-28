@@ -32,13 +32,15 @@
 }
 .steps-head[aria-expanded="false"] .steps-chevron { transform: rotate(-45deg); margin-bottom: 0; }
 
-/* The timeline: a dot per step, joined by a dotted line. */
+/* The timeline: an icon per step, joined by a dotted line. Three states, as on the old
+   page (DAR-636, after the Oct 22 demo found two kinds of circle confusing): a gray
+   hollow circle not started, a solid circle in progress, a check mark done. */
 .steps-list { list-style: none; margin: 2px 0 0; padding: 0 0 0 2px; font-size: .88rem; }
 .step { position: relative; display: flex; gap: 12px; padding: 2px 0 8px 22px; color: var(--muted-foreground); }
 .step:last-child { padding-bottom: 2px; }
 .step::before {
   content: ""; position: absolute; left: 3px; top: .5em; width: 10px; height: 10px;
-  border-radius: 50%; border: 2px solid var(--border); background: var(--background); box-sizing: border-box;
+  border-radius: 50%; border: 2px solid var(--muted-foreground); background: var(--background); box-sizing: border-box;
 }
 .step::after {
   content: ""; position: absolute; left: 7px; top: calc(.5em + 13px); bottom: -2px;
@@ -46,8 +48,16 @@
 }
 .step:last-child::after { display: none; }
 .step[data-status="running"] { color: var(--foreground); }
-.step[data-status="running"]::before { border-color: var(--primary); animation: steps-pulse 1.2s ease-in-out infinite; }
-.step[data-status="done"]::before { border-color: var(--primary); background: var(--primary); }
+.step[data-status="running"]::before {
+  border-color: var(--primary); background: var(--primary); animation: steps-pulse 1.2s ease-in-out infinite;
+}
+/* The check is drawn like the header's: two borders of a narrow box, turned 45 degrees,
+   centred where the circle was (left 3px + 10px wide: x = 8px). */
+.step[data-status="done"]::before {
+  left: 5px; top: calc(.5em - 2px); width: 6px; height: 11px; border-radius: 0;
+  border: 0; border-right: 2px solid var(--primary); border-bottom: 2px solid var(--primary);
+  background: transparent; transform: rotate(45deg);
+}
 .step[data-status="failed"]::before { border-color: var(--destructive); background: var(--background); }
 /* Stopped by the visitor: the step it was on didn't fail, it was left. */
 [data-state="stopped"] .step[data-status="failed"]::before { border-color: var(--muted-foreground); }

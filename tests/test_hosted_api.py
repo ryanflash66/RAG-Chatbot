@@ -230,8 +230,10 @@ def test_missing_api_key_is_reported_without_details(api, monkeypatch):
     assert "OPENROUTER" not in response.text
 
 
-def test_page_divisions_and_health_expose_no_secrets(api):
+def test_page_divisions_and_health_expose_no_secrets(api, monkeypatch, tmp_path):
     client, _, _ = api
+    (tmp_path / "index.html").write_text("<!doctype html><title>Cross-Division Q&amp;A</title>", encoding="utf-8")
+    monkeypatch.setattr(hosted, "PUBLIC_DIR", tmp_path)  # the built page, wherever the tests run
     page = client.get("/")
     divisions = client.get("/api/divisions").json()
     health = client.get("/api/health").json()
@@ -388,11 +390,12 @@ def test_searched_counts_only_the_ticked_documents(monkeypatch):
     assert hosted._searched(division, ["Permits.pdf"]) == {"documents": 1, "passages": 4}
 
 
-@pytest.mark.parametrize("path,kind", [("/css/base.css", "text/css"), ("/js/app.js", "javascript")])
-def test_the_pages_stylesheets_and_scripts_are_served(api, path, kind):
+def test_the_page_says_how_to_build_it_when_public_is_missing(api, monkeypatch, tmp_path):
+    # public/ is the React build's output (DAR-634); a fresh checkout has none until `npm run build`.
     client, _, _ = api
-    response = client.get(path)
-    assert response.status_code == 200 and kind in response.headers["content-type"]
+    monkeypatch.setattr(hosted, "PUBLIC_DIR", tmp_path / "public")
+    response = client.get("/")
+    assert response.status_code == 503 and "npm run build" in response.text
 
 
 # POST /api/ask/stream (DAR-629)

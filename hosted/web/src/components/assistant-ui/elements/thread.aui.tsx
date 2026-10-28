@@ -6,7 +6,9 @@ import { StepsPart } from "@/components/assistant-ui/elements/steps";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { buildHistory, type QuestionMetadata } from "@/runtime/history";
 import { useApp } from "@/state";
+import type { AnswerMetadata } from "@/types";
 import {
   ActionBarPrimitive,
   AuiIf,
@@ -15,8 +17,8 @@ import {
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
-  SuggestionPrimitive,
   ThreadPrimitive,
+  useAui,
   useAuiState,
 } from "@assistant-ui/react";
 import {
@@ -104,9 +106,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({ isEmpty, aut
             <ThreadScrollToBottom />
             <ThreadFollowupSuggestions />
             <Composer autoFocus={autoFocus} />
-            <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
-              <ThreadSuggestions />
-            </AuiIf>
+            <ComposerFooter />
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>
@@ -150,41 +150,82 @@ const ThreadWelcome: FC = () => {
       <p className="text-muted-foreground mt-2 text-sm">
         Answers come only from that division's documents, with the PDF page each fact is on.
       </p>
+      <Examples />
     </div>
   );
 };
 
-const ThreadSuggestions: FC = () => {
+/**
+ * The target division's example questions (divisions.py), as on the old page. An
+ * example is a question of its own, so it goes without the conversation (prefixing a
+ * previous question would only blur its search) and starts a topic.
+ */
+const Examples: FC = () => {
+  const aui = useAui();
+  const target = useApp((s) => s.divisions.find((d) => d.id === s.target));
+  if (!target?.examples.length) return null;
+  const ask = (text: string) => {
+    const thread = aui.thread();
+    if (thread.getState().isRunning) return;
+    const custom: QuestionMetadata = { standalone: true };
+    thread.append({ role: "user", content: [{ type: "text", text }], metadata: { custom } });
+  };
   return (
-    <div className="aui-thread-welcome-suggestions flex w-full flex-col">
-      <ThreadPrimitive.Suggestions>{() => <ThreadSuggestionItem />}</ThreadPrimitive.Suggestions>
-    </div>
-  );
-};
-
-const ThreadSuggestionItem: FC = () => {
-  return (
-    <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200">
-      <SuggestionPrimitive.Trigger
-        send
-        render={
+    <div className="mt-5">
+      <p className="text-muted-foreground mb-1.5 text-sm">Try an example question for {target.name}:</p>
+      <div className="flex flex-col items-start gap-1.5">
+        {target.examples.map((q) => (
           <button
+            key={q}
             type="button"
-            className="aui-thread-welcome-suggestion group hover:bg-foreground/[0.03] focus-visible:ring-ring/50 flex w-full items-baseline gap-2.5 rounded-md px-2 py-2 text-start text-sm transition-colors outline-none focus-visible:ring-1 motion-reduce:transition-none"
-          />
-        }
-      >
-        <span
-          aria-hidden
-          className="text-muted-foreground/60 group-hover:text-foreground font-mono text-xs transition-colors motion-reduce:transition-none"
-        >
-          {">"}
-        </span>
-        <span className="min-w-0 flex-1 truncate">
-          <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1 text-foreground" />{" "}
-          <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 text-muted-foreground empty:hidden" />
-        </span>
-      </SuggestionPrimitive.Trigger>
+            onClick={() => ask(q)}
+            className="hover:bg-foreground/[0.04] focus-visible:ring-ring/50 rounded-full border px-3 py-1 text-start text-sm transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Under the composer: when a question will be read as a follow-up (its search then
+ * includes the previous question), New chat to start over, and the notice the old
+ * page's footer gave.
+ */
+const ComposerFooter: FC = () => {
+  const aui = useAui();
+  const messages = useAuiState((s) => s.thread.messages);
+  const running = useAuiState((s) => s.thread.isRunning);
+  const target = useApp((s) => s.divisions.find((d) => d.id === s.target));
+  // The turns the next typed question would be sent with (what turnsFor gives it once sent).
+  const followUp = !!target && buildHistory(messages, target.id).length > 0;
+  const newChat = () => {
+    if (aui.thread().getState().isRunning) return;
+    aui.thread().reset();
+    useApp.getState().showAnswer(null);
+  };
+  return (
+    <div className="flex flex-col gap-2 px-1 text-xs">
+      {(followUp || messages.length > 0) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          {followUp && (
+            <p id="followup-hint" className="text-muted-foreground m-0 min-w-0 flex-1">
+              Read as a follow-up to your last {target.name} question. For a new topic, start a new chat.
+            </p>
+          )}
+          {messages.length > 0 && (
+            <Button type="button" variant="outline" size="sm" className="ms-auto" disabled={running} onClick={newChat}>
+              New chat
+            </Button>
+          )}
+        </div>
+      )}
+      <p className="text-muted-foreground m-0">
+        Answers are written by a free AI model from the cited pages only. Check the linked page before relying on an
+        answer. Questions are sent to OpenRouter to generate the answer; don't enter personal or sensitive information.
+      </p>
     </div>
   );
 };
@@ -275,6 +316,44 @@ const ANSWER_PARTS = {
   data: { by_name: { steps: StepsPart } },
 };
 
+/** "Answer from <target>, for a colleague in <asker>", as on the old page's answer cards. */
+const AnswerHead: FC = () => {
+  const meta = useAuiState((s) => s.message.metadata.custom as AnswerMetadata);
+  const divisions = useApp((s) => s.divisions);
+  const name = (id?: string) => divisions.find((d) => d.id === id)?.name;
+  const target = meta.payload?.target.name ?? name(meta.targetId);
+  const asker = meta.payload?.asker.name ?? name(meta.askerId);
+  if (!target) return null;
+  return (
+    <p className="text-muted-foreground mb-1.5 text-sm">
+      Answer from <strong className="text-foreground">{target}</strong>
+      {asker && asker !== target ? `, for a colleague in ${asker}` : ""}
+    </p>
+  );
+};
+
+/**
+ * "Now asking <division>" above a question sent to another division than the answer
+ * before it, so a thread that moves between divisions says where each answer came from.
+ */
+const NowAsking: FC = () => {
+  const index = useAuiState((s) => s.message.index);
+  const messages = useAuiState((s) => s.thread.messages);
+  const divisions = useApp((s) => s.divisions);
+  const targetOf = (i: number) => (messages[i]?.metadata.custom as AnswerMetadata | undefined)?.targetId;
+  const before = index >= 1 ? targetOf(index - 1) : undefined;
+  const now = targetOf(index + 1);
+  if (!before || !now || before === now) return null;
+  const name = divisions.find((d) => d.id === now)?.name ?? now;
+  return (
+    <div role="separator" className="text-muted-foreground col-span-full flex items-center gap-3 py-1 text-xs">
+      <span className="bg-border h-px flex-1" />
+      <span>Now asking {name}</span>
+      <span className="bg-border h-px flex-1" />
+    </div>
+  );
+};
+
 const AssistantMessage: FC = () => {
   const running = useAuiState((s) => s.message.status?.type === "running");
 
@@ -289,6 +368,7 @@ const AssistantMessage: FC = () => {
         aria-busy={running}
         className="text-foreground px-2 leading-relaxed wrap-break-word"
       >
+        <AnswerHead />
         <MessagePrimitive.Parts components={ANSWER_PARTS} />
         <AnswerFooter />
         <MessageError />
@@ -331,6 +411,7 @@ const UserMessage: FC = () => {
       className="fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 motion-reduce:animate-none [&:where(>*)]:col-start-2"
       data-role="user"
     >
+      <NowAsking />
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
         <div className="aui-user-message-content peer bg-muted text-foreground rounded-(--composer-radius) px-4 py-2 wrap-break-word empty:hidden">
           <MessagePrimitive.Parts />

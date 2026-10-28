@@ -3,14 +3,14 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// The page is served at /new/ beside the current one (hosted/public/index.html) until
-// DAR-634 swaps them; it is built into hosted/public/new/, which FastAPI's static mount
-// serves locally and Vercel's CDN serves in production.
+// The page (DAR-634 made it the home page) is built into hosted/public/, which
+// FastAPI's static mount serves locally and Vercel's CDN serves in production. The
+// whole folder is build output, so emptying it before each build is safe.
 export default defineConfig({
-  base: "/new/",
+  base: "/",
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
-  build: { outDir: "../public/new", emptyOutDir: true },
+  build: { outDir: "../public", emptyOutDir: true },
   server: {
     // npm run dev talks to the FastAPI app started with uvicorn on :8000.
     proxy: { "/api": "http://localhost:8000" },

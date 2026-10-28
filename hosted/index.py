@@ -1,6 +1,6 @@
 """The hosted demo: one FastAPI app that serves the page and answers questions.
 
-    GET  /                the page (public/index.html; public/css and public/js beside it)
+    GET  /                the page (public/index.html, built from web/ by `npm run build`)
     GET  /api/divisions   divisions, their documents (with passage counts) and example questions
     POST /api/warm        load the models now, returning once they are ready
     POST /api/ask         {"question", "asker", "target", "history"?, "documents"?, "refused_by"?}
@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import AsyncIterator, Deque, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -213,8 +213,13 @@ def _searched(target: Division, documents: Optional[List[str]]) -> Dict[str, int
 
 
 @app.get("/", include_in_schema=False)
-def page() -> FileResponse:
-    return FileResponse(PUBLIC_DIR / "index.html", media_type="text/html")
+def page() -> Response:
+    index = PUBLIC_DIR / "index.html"
+    # public/ is build output (web/, DAR-634): a checkout that hasn't run the build has
+    # none, and a plain message beats the 500 a missing file would give.
+    if not index.is_file():
+        return PlainTextResponse("The page isn't built yet: run `npm ci && npm run build` in hosted/web.", status_code=503)
+    return FileResponse(index, media_type="text/html")
 
 
 @app.get("/api/divisions")
@@ -422,7 +427,7 @@ def _ms_text(timing: Dict[str, int]) -> str:
 
 
 # Keep this last: routes registered after a mount at "/" would never be reached.
-# Locally it serves public/css and public/js beside the page. On Vercel the CDN
+# Locally it serves the built page's assets/ beside it. On Vercel the CDN
 # serves public/ and leaves it out of the function bundle, so the mount is skipped
 # there: StaticFiles raises at import for a missing directory, which took down every
 # /api route on the first preview of this layout.

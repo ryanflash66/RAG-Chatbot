@@ -70,13 +70,14 @@ export function applyEvent(answer: AnswerSoFar, event: AskEvent): AnswerSoFar {
  * a source part per cited passage. metadata.custom is the AnswerMetadata the panels
  * read (DAR-632); targetId is on it from the start, so history can filter by division.
  */
-export function toResult(answer: AnswerSoFar, targetId: string): ChatModelRunResult {
+export function toResult(answer: AnswerSoFar, targetId: string, askerId?: string): ChatModelRunResult {
   const content: ThreadAssistantMessagePart[] = [{ type: "data", name: STEPS_PART, data: answer.steps }];
   if (answer.text) content.push({ type: "text", text: answer.text });
   for (const source of answer.payload?.sources ?? []) {
     content.push({ type: "source", sourceType: "url", id: `source-${source.n}`, url: source.url, title: source.title });
   }
   const custom: AnswerMetadata = { steps: answer.steps, targetId };
+  if (askerId) custom.askerId = askerId;
   if (answer.payload) custom.payload = answer.payload;
   return { content, metadata: { custom } };
 }
