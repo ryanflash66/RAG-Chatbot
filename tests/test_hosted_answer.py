@@ -843,6 +843,17 @@ def test_live_steps_count_loading_the_models_as_reading_the_question():
                           {"id": "rerank", "label": "Picking the 5 best passages", "ms": 180}]
 
 
+def test_live_steps_announce_the_expected_steps_as_pending_but_not_retry_or_suggest():
+    for rerank, expected in [(True, ["read", "search", "rerank", "write", "check"]),
+                             (False, ["read", "search", "write", "check"])]:
+        sent = []
+        steps = LiveSteps(live_step_labels(BY_ID["utilities"], 1234, 5), lambda event, data: sent.append((event, data)))
+        steps.announce(rerank=rerank)
+        assert [(d["id"], d["status"], d["ms"]) for _, d in sent] == [(s, "pending", 0) for s in expected]
+        assert sent[1][1]["label"] == "Searching Utilities documents (1,234 passages)"
+        assert steps.done == []  # announcing finishes nothing: the payload's steps are unchanged
+
+
 def test_live_steps_without_a_stream_only_record_the_finished_steps():
     steps = LiveSteps(live_step_labels(BY_ID["wztc"], 10, 5))
     steps("llm", "start", 0)

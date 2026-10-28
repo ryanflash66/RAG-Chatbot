@@ -180,6 +180,18 @@ A case passes when every substring of any one of its `accept` groups appears in 
 
 Answers aren't fully deterministic, and on a shared Ollama the first question includes model load time, so treat a one-question difference between runs as noise.
 
+### RAG metrics for the hosted demo (`evaluation/`)
+
+`evaluation/` scores the hosted demo's pipeline on the standard RAG metrics: the RAGAS set (faithfulness, answer relevancy, context precision, context recall), a no-LLM cross-check against the PDF pages known to hold each answer, and answer time. It uses 90 questions built from the gold sets above. [`evaluation/METRICS.md`](evaluation/METRICS.md) defines each metric and cites its sources, and [`evaluation/RESULTS.md`](evaluation/RESULTS.md) has the latest results and charts.
+
+```bash
+.venv\Scripts\python -m evaluation.build_testset            # rebuild evaluation/testset.json
+.venv\Scripts\python -m evaluation.run_ragas --stage retrieval   # page metrics only, no LLM
+.venv\Scripts\python -m evaluation.run_ragas                # answer, judge (free OpenRouter model), score, chart
+```
+
+The run caches every answer and verdict in `evaluation/results/cache.jsonl`, so it resumes after a free model's daily cap. `--answer-base-url`/`--answer-models` and `--judge-base-url`/`--judge-models` point the answering model or the judge at another OpenAI-compatible endpoint, such as a local Ollama model or the OpenAI API (`JUDGE_API_KEY`), and `--fallback-judge-base-url`/`--fallback-judge-models` add a second judge for what the first one couldn't score.
+
 ## Hosted demo: cross-division Q&A (`hosted/`)
 
 A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Control, Utilities, or Transportation Mobility and Safety) asks a question and gets an answer drawn only from *another* division's documents, citing the document, PDF page and section, with a link to the public PDF at that page. When the manual doesn't cover the question, the demo says so and shows no sources.

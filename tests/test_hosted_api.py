@@ -109,6 +109,8 @@ def api(monkeypatch):
     retriever = _FakeRetriever()
     llm = _FakeLLM("Within 5 feet of the travel lane on an undivided facility [1].")
     monkeypatch.setattr(hosted, "settings", dataclasses.replace(hosted.settings, openrouter_api_key=SECRET))
+    # rerank off as the fake retriever has no reranker, so the stream doesn't list a rerank step.
+    monkeypatch.setattr(hosted.runtime, "settings", dataclasses.replace(hosted.runtime.settings, rerank=False))
     monkeypatch.setattr(hosted.runtime, "retriever", lambda: retriever)
     monkeypatch.setattr(hosted, "_make_llm", lambda: llm)
     monkeypatch.setattr(hosted, "limiter", hosted._RateLimiter(100))
@@ -414,6 +416,10 @@ def _order(events):
     return [f"{data['id']}:{data['status']}" if event == "step" else event for event, data in events]
 
 
+# What the stream lists first without a reranker (the api fixture): every step expected to run, not started.
+PENDING = ["read:pending", "search:pending", "write:pending", "check:pending"]
+
+
 def test_a_streamed_answer_sends_the_steps_and_the_text_as_they_happen_then_the_same_answer_as_ask(api, caplog):
     client, retriever, _ = api
 
@@ -426,8 +432,8 @@ def test_a_streamed_answer_sends_the_steps_and_the_text_as_they_happen_then_the_
     events = _events(response)
     order = _order(events)
     written = order.index("write:done")
-    assert order[:5] == ["read:start", "read:done", "search:start", "search:done", "write:start"]
-    assert set(order[5:written]) == {"delta"} and written - 5 > 1  # the text in pieces, while it is written
+    assert order[:9] == PENDING + ["read:start", "read:done", "search:start", "search:done", "write:start"]
+    assert set(order[9:written]) == {"delta"} and written - 9 > 1  # the text in pieces, while it is written
     assert order[written:] == ["write:done", "check:start", "check:done", "done"]
     # The citation comes with the checked answer: the prompt's numbers are renumbered.
     assert "".join(data["text"] for event, data in events if event == "delta") == (
@@ -468,8 +474,8 @@ def test_a_streamed_refusal_with_strong_retrieval_double_checks_and_replaces_the
 
     order = _order(events)
     retry = order.index("retry:start")
-    assert order[:retry] == ["read:start", "read:done", "search:start", "search:done", "write:start", "write:done",
-                             "check:start", "check:done"]  # no delta: the refusal's marker is never shown
+    assert order[:retry] == PENDING + ["read:start", "read:done", "search:start", "search:done", "write:start",
+                                       "write:done", "check:start", "check:done"]  # no delta: the marker is never shown
     assert events[retry][1]["label"] == "Double-checking the source…"
     assert events[retry + 1] == ("replace", {"text": ""})
     assert set(order[retry + 2:-2]) == {"delta"} and order[-2:] == ["retry:done", "done"]
@@ -495,6 +501,38 @@ def test_a_streamed_refusal_refused_again_suggests_another_division(api):
                                {"id": "tmsd", "name": "Transportation Mobility and Safety"}]
     assert [s["id"] for s in done["steps"]] == ["read", "search", "write", "check", "retry", "suggest"]
     assert [s["id"] for s in _ask(client).json()["steps"]] == ["read", "search", "write", "check", "retry", "suggest"]
+    # retry and suggest ran, but only after a refusal, so neither was listed as pending.
+    assert [o for o in order if o.endswith(":pending")] == PENDING
+
+
+def test_the_stream_lists_the_expected_steps_as_pending_before_the_first_starts(api, monkeypatch):
+    client, retriever, _ = api
+
+    events = _events(_stream(client))
+
+    pending = [(data["id"], data["label"], data["ms"]) for event, data in events[:4]]
+    assert _order(events[:4]) == PENDING and {ms for _, _, ms in pending} == {0}
+    labels = {data["id"]: data["label"] for event, data in events if event == "step" and data["status"] != "pending"}
+    assert all(labels[step] == label for step, label, _ in pending)  # the same labels as when they run
+    assert _order(events[4:5]) == ["read:start"]
+
+    # With a reranker the rerank step is listed between search and write. The fake search
+    # finds one passage, which the retriever never reranks: listed, never started, not in steps.
+    monkeypatch.setattr(hosted.runtime, "settings", dataclasses.replace(hosted.runtime.settings, rerank=True))
+    retriever.reranker = object()
+    events = _events(_stream(client))
+    order = _order(events)
+    assert order[:6] == ["read:pending", "search:pending", "rerank:pending", "write:pending", "check:pending",
+                         "read:start"]
+    assert "rerank:start" not in order
+    assert [s["id"] for s in events[-1][1]["steps"]] == ["read", "search", "write", "check"]
+
+
+def test_ask_without_a_stream_reports_only_the_finished_steps(api):
+    client, _, _ = api
+    steps = _ask(client).json()["steps"]
+    assert [s["id"] for s in steps] == ["read", "search", "write", "check"]
+    assert all(set(s) == {"id", "label", "ms"} for s in steps)
 
 
 def test_an_uncited_answer_is_kept_and_flagged_by_both_endpoints(api):
@@ -564,7 +602,7 @@ def test_a_stream_still_ends_before_vercel_stops_the_function(api, monkeypatch):
 
     events = _events(_stream(client))
 
-    assert _order(events) == ["read:start", "error"]
+    assert _order(events) == PENDING + ["read:start", "error"]
     assert events[-1][1] == {"error": TOO_SLOW, "status": 504}
 
 

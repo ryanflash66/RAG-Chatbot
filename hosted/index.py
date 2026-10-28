@@ -275,7 +275,9 @@ async def ask(body: AskRequest, request: Request):
 async def ask_stream(body: AskRequest, request: Request):
     """/api/ask as server-sent events, so the page can show the steps and the text as they happen (DAR-629).
 
-        step     {"id", "label", "status": "start" | "done", "ms"}  (answer.LIVE_STEPS)
+        step     {"id", "label", "status": "pending" | "start" | "done", "ms"}  (answer.LIVE_STEPS):
+                 first each step expected to run, as "pending" with ms 0, then each
+                 start and done as it happens (retry and suggest only when they start)
         delta    {"text"}    more of the answer, as the model writes it
         replace  {"text"}    the text shown so far is replaced (the retry starts over)
         done     the JSON /api/ask returns
@@ -308,6 +310,10 @@ async def _answer(checked: Question, emit: Optional[Emit] = None) -> Tuple[int, 
     question, asker, target = checked.text, checked.asker, checked.target
     started = time.perf_counter()
     steps = LiveSteps(_step_labels(checked), emit)
+    if emit is not None:
+        # The setting the runtime builds the reranker from, not the retriever: on a cold instance
+        # the models are still to load, and the page should list the steps before that wait.
+        steps.announce(rerank=runtime.settings.rerank)
     timer = StepTimer(steps)
     try:
         with timer.step("model_load"):  # waits for the models on a cold instance, near 0 once loaded

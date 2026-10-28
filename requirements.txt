@@ -21,3 +21,5 @@ fastapi
 uvicorn[standard]
 httpx
 pytest
+# Charts for the RAG evaluation (evaluation/charts.py)
+matplotlib

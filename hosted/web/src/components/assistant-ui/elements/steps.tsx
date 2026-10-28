@@ -14,6 +14,9 @@ const TITLES: Record<BlockState, string> = {
   stopped: "Stopped",
 };
 
+// Read before each label, as the icons alone say nothing to a screen reader (as public/js/steps.js).
+const STATUS_TEXT = { pending: "Not started: ", running: "In progress: ", done: "Done: ", failed: "Stopped: " };
+
 /**
  * The `steps` data part: "Working…" while the answer is on its way, then "Done in N s"
  * with the model, over the steps on a dotted timeline (the old page's steps.js). It
@@ -69,9 +72,19 @@ export const StepsPart: DataMessagePartComponent<StepEvent[]> = ({ data }) => {
       </button>
       <ol className="steps-list" id={listId} hidden={!open}>
         {steps.map((step) => {
-          const shown = step.status !== "done" && state !== "running" ? "failed" : step.status === "done" ? "done" : "running";
+          // A pending step hasn't started, so it is never shown running or failed; the
+          // three icons themselves are DAR-634's parity work with public/css/steps.css.
+          const shown =
+            step.status === "done"
+              ? "done"
+              : step.status === "pending"
+                ? "pending"
+                : state !== "running"
+                  ? "failed"
+                  : "running";
           return (
             <li key={step.id} className="step" data-step={step.id} data-status={shown}>
+              <span className="sr-only">{STATUS_TEXT[shown]}</span>
               <span className="step-label">{step.label ?? step.id}</span>
               <span className="step-ms">{shown === "done" ? seconds(step.ms ?? 0) : ""}</span>
             </li>
