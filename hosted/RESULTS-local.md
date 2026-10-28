@@ -68,3 +68,19 @@ Latency (server time, models already loaded): median 2.6 s, range 1.7-8.3 s. Ret
 4. I tried a prompt rule against assuming conditions the question didn't state, then reverted it: in that run X1 still assumed a blanket agreement, and B4 refused 2 of 4 times.
 
 Answers vary between runs: in earlier runs X1 sometimes assumed the crossing was under a blanket agreement (so no notice needed).
+
+## Third division: Transportation Mobility and Safety (DAR-622, 2026-10-27)
+
+TMSD's two documents (the TODS Procedures Manual and the Guidelines for Investigation of Fatal Crashes) were added with the offline workflow: rows in `divisions.py` and `docs/source-documents/SOURCES.md`, `fetch_documents.py`, then `prototype.ingest`. The index went from 758 to 839 chunks (TMSD 81: TODS 74, fatal crash guidelines 7); the 758 Work Zone and Utilities chunks and their vectors are unchanged.
+
+Asked by a Work Zone Traffic Control user through `POST /api/ask/stream` on the local app, answered by `nvidia/nemotron-3-ultra-550b-a55b:free` (no fallback, no retry). Expected pages were checked against the PDFs (physical pages; the TODS manual's printed page numbers are 3 lower).
+
+| # | Question | Answer (shortened) | Cited | Expected | Correct? | Time |
+|---|---|---|---|---|---|---|
+| T1 | How many TODS panels can go on one intersection approach? | A maximum of six TODS panels may be installed on a single intersection approach, with only one attraction per panel. If only one TODS assembly can fit on the approach, the limit is three panels. [1][2] | [1] TODS p. 7; [2] TODS pp. 25-27 | Six per approach, one business each; three if there is room for only one assembly; TODS manual V.A (p. 7), G.S. 136-140.19(5) quoted on p. 25 | Yes | 2.1 s |
+| T2 | What fees does an attraction pay for a TODS sign? | A non-refundable $200 fee covering the application and first annual fee, due before the field investigation [1]. A $200 construction cost for each TODS panel, due within 30 days of contract approval [2]. An annual maintenance fee of $200 per contract, due each July 1 [1][2]. A $200 service charge per panel for a sign change [1]. | [1] TODS pp. 8-9; [2] TODS p. 18 | $200 initial non-refundable fee per contract (p. 8); $200 annual maintenance fee per contract, July 1 (p. 9, agreement p. 18); $200 per panel for replacement or a design change (p. 9); construction costs due within 30 days of approval (p. 18) | Partly: every fee is right except "$200 construction cost for each panel": p. 18 says construction costs are due within 30 days but gives no amount (p. 27 says only "a one-time fee per TODS panel") | 2.0 s |
+| T3 | How long does a regional office have to complete a fatal crash investigation? | The regional office is expected to complete a fatal crash investigation within 60 calendar days (45 business days) from the start of Step 4 in the Workflow Tracker. [1] | [1] Fatal crash guidelines p. 5 | 60 calendar days (45 business days), counted from step 4 of the Workflow Tracker; the RTE may waive it; p. 5 | Yes | 3.3 s |
+
+All three answers cite the right document and the page with the answer. T2 also shows the free model filling in an amount the manual leaves out; it is the kind of detail the "check the linked page" note on the page is for.
+
+"How far from the attraction can a TODS sign be placed?" (five miles, PDF p. 6) was dropped as an example question: its answer page ranked only 5th, behind the statute and form pages. "How long does an attraction have to change its operation to qualify for TODS?" (30 days, p. 8, reranker score 7.56) replaced it.

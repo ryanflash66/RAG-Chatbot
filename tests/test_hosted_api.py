@@ -230,7 +230,7 @@ def test_page_divisions_and_health_expose_no_secrets(api):
     health = client.get("/api/health").json()
 
     assert page.status_code == 200 and "<title>" in page.text
-    assert [d["id"] for d in divisions["divisions"]] == ["wztc", "utilities"]
+    assert [d["id"] for d in divisions["divisions"]] == ["wztc", "utilities", "tmsd"]
     assert all(d["examples"] and d["documents"][0]["url"].startswith("https://connect.ncdot.gov/") for d in divisions["divisions"])
     assert health["llm_configured"] is True
     assert health["cpus"]["cpu_count"] >= 1
@@ -483,7 +483,9 @@ def test_a_streamed_refusal_refused_again_suggests_another_division(api):
     assert order[-6:] == ["retry:start", "replace", "retry:done", "suggest:start", "suggest:done", "done"]
     done = events[-1][1]
     assert done["refused"] is True and done["retried"] is True and done["sources"] == []
-    assert done["suggest"] == [{"id": "wztc", "name": "Work Zone Traffic Control"}]
+    # The fake retriever scores every division's passage 2.0, so both other divisions clear the bar.
+    assert done["suggest"] == [{"id": "wztc", "name": "Work Zone Traffic Control"},
+                               {"id": "tmsd", "name": "Transportation Mobility and Safety"}]
     assert [s["id"] for s in done["steps"]] == ["read", "search", "write", "check", "retry", "suggest"]
     assert [s["id"] for s in _ask(client).json()["steps"]] == ["read", "search", "write", "check", "retry", "suggest"]
     # retry and suggest ran, but only after a refusal, so neither was listed as pending.

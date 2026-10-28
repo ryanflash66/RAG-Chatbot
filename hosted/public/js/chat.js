@@ -202,7 +202,7 @@
     return { carry: prior ? [{ question: prior, answer: "" }] : [] };
   }
 
-  // The server suggested the other division after searching it with the same
+  // The server suggested another division after searching it with the same
   // text as the refused question: the previous question plus this one. Asking
   // there sends that previous question again, without its answer (which came
   // from the first division's documents), so the new search keeps the topic.

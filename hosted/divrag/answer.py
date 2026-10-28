@@ -53,6 +53,12 @@ SUGGEST_THRESHOLD = 0.0
 # the open-cut trench question asked of Work Zone lost its "ask Utilities");
 # reranking 20 added about 4.6 s to every refusal on Vercel.
 SUGGEST_CANDIDATES = 10
+# Time a suggestion check for one more division needs: an embedding plus 10
+# reranks, about 2.3 s on Vercel by the figure above. With a third division
+# (TMSD, DAR-622) a refusal checks two divisions, and a retry may end only
+# RETRY_MARGIN_SECONDS before the deadline, so later checks are skipped rather
+# than letting the refusal run past it.
+SUGGEST_MIN_SECONDS = 3.0
 # A refusal is retried once when the best passage's reranker score is at least
 # this. Scores of questions the documents answer were 0.9-7.8 (bore-and-jack
 # cover, which the free model sometimes refused: 3.5); questions they don't
@@ -362,9 +368,13 @@ def attach_sources(text: str, hits: List[Hit]) -> Tuple[str, List[Source]]:
 def refusal_text(target: Division, suggest: List[str]) -> str:
     titles = "; ".join(d.title for d in target.documents)
     text = f"I couldn't find an answer to that in the {target.name} documents ({titles})."
-    if suggest:
-        names = " or ".join(BY_ID[d].name for d in suggest)
-        text += f" The {names} documents look more relevant: try asking {names} instead."
+    if len(suggest) == 1:
+        name = BY_ID[suggest[0]].name
+        text += f" The {name} documents look more relevant: try asking {name} instead."
+    elif suggest:
+        # Listed, not joined with "or": "Transportation Mobility and Safety" already has an "and" in it.
+        names = "; ".join(BY_ID[d].name for d in suggest)
+        text += f" Other divisions' documents look more relevant; try asking one of them instead: {names}."
     else:
         text += " Try rephrasing the question, or ask the division that owns the topic."
     return text
@@ -570,14 +580,22 @@ class Answerer:
                                        timer=timer, sources=documents)
         return self.retriever.as_passages(self.retriever.with_following(hits, top=FOLLOWING_FOR_TOP))
 
-    def suggest_divisions(self, question: str, target: Division) -> List[str]:
-        """Other divisions whose best passage clears the reranker's relevance bar."""
+    def suggest_divisions(self, question: str, target: Division, deadline: Optional[float] = None) -> List[str]:
+        """Other divisions whose best passage clears the reranker's relevance bar.
+
+        Divisions are checked one after another, and the check stops when less
+        than SUGGEST_MIN_SECONDS of the request is left, so a refusal that comes
+        late (after a retry) is still returned, without the later suggestions.
+        """
         if self.retriever.reranker is None:
             return []
         suggest = []
         for division in DIVISIONS:
             if division.id == target.id:
                 continue
+            if deadline is not None and deadline - time.monotonic() < SUGGEST_MIN_SECONDS:
+                log.info("skipping the remaining division suggestions: too little time left")
+                break
             hits = self.retriever.retrieve(question, division=division.id, k=1, candidates=SUGGEST_CANDIDATES)
             if hits and hits[0].score >= SUGGEST_THRESHOLD:
                 suggest.append(division.id)
@@ -687,7 +705,8 @@ class Answerer:
         if not text:
             with timed(timer, "suggest"):
                 # The same text the question was searched with, so a refused follow-up is matched on its topic.
-                suggest = await asyncio.to_thread(self.suggest_divisions, self.search_query(question, history), target)
+                suggest = await asyncio.to_thread(self.suggest_divisions, self.search_query(question, history), target,
+                                                  deadline)
             return Answer(refusal_text(target, suggest), refused=True, model=completion.model, suggest=suggest,
                           retried=retried, first_model=first_model)
         return Answer(text, refused=False, sources=sources, model=completion.model, retried=retried,

@@ -5,12 +5,14 @@ import json
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hosted"))
 
+from divrag import answer as answer_module  # noqa: E402
 from divrag import llm as llm_module  # noqa: E402
 from divrag.answer import (  # noqa: E402
     HISTORY_ANSWER_CHARS, HISTORY_QUESTION_CHARS, HISTORY_TURNS, NOT_FOUND, SUGGEST_CANDIDATES, Answerer, LiveSteps,
@@ -26,6 +28,7 @@ from divrag.timing import StepTimer  # noqa: E402
 
 UAM = "20220713 NCDOT UAM Ver 2-0.pdf"
 TMP = "TMP Design Manual (Combined, No Links).pdf"
+TODS = "TODS Manual - September 2024.pdf"
 
 
 def _hit(page, text="text", source=UAM, division="utilities", section=None, score=1.0):
@@ -255,8 +258,9 @@ class _FakeRetriever:
         self.searched.append(division)
         self.candidates.append(candidates)
         self.questions.append(question)
-        source = TMP if division == "wztc" else UAM
-        return [_hit(10, source=source, division=division, score=self.scores[division])]
+        source = {"wztc": TMP, "tmsd": TODS}.get(division, UAM)
+        # A division a test gives no score to (tmsd, unless named) has nothing relevant.
+        return [_hit(10, source=source, division=division, score=self.scores.get(division, -9.0))]
 
     def with_following(self, hits, top=2):
         return hits
@@ -333,6 +337,32 @@ def test_refusal_suggests_the_other_division_when_its_documents_look_relevant():
     assert result.as_dict()["suggest"] == [{"id": "wztc", "name": "Work Zone Traffic Control"}]
 
 
+def test_refusal_suggests_every_other_division_whose_documents_look_relevant():
+    result, retriever = _answer(NOT_FOUND, scores={"wztc": 3.2, "utilities": -9.0, "tmsd": 2.9})
+
+    assert result.suggest == ["wztc", "tmsd"]
+    assert retriever.searched[1:] == ["wztc", "tmsd"]  # every division but the one asked
+    assert result.answer.endswith(
+        "try asking one of them instead: Work Zone Traffic Control; Transportation Mobility and Safety.")
+
+
+def test_suggestions_stop_when_the_request_is_nearly_out_of_time(monkeypatch):
+    retriever = _FakeRetriever({"wztc": 3.2, "tmsd": 2.9})
+    answerer = Answerer(retriever, _FakeLLM(NOT_FOUND))
+    now = [100.0]
+    monkeypatch.setattr(answer_module, "time", SimpleNamespace(monotonic=lambda: now[0]))
+
+    def retrieve(question, division, **kwargs):
+        now[0] += 2.0  # each division's check takes 2 s
+        return _FakeRetriever.retrieve(retriever, question, division, **kwargs)
+    retriever.retrieve = retrieve
+
+    # 4.5 s left: wztc is checked; 2.5 s are left after it, under SUGGEST_MIN_SECONDS, so tmsd is skipped.
+    assert answerer.suggest_divisions("q", BY_ID["utilities"], deadline=104.5) == ["wztc"]
+    assert retriever.searched == ["wztc"]
+    assert answerer.suggest_divisions("q", BY_ID["utilities"], deadline=None) == ["wztc", "tmsd"]
+
+
 @pytest.mark.parametrize("first", [NOT_FOUND, f"Sorry, {NOT_FOUND}."])
 def test_refusal_despite_strong_retrieval_is_retried_once_with_the_next_model(first):
     result, llm = _ask_with_retry([first, "Three feet [1]."], score=3.5, seconds_left=40)
@@ -358,7 +388,7 @@ def test_a_follow_up_is_retrieved_answered_retried_and_suggested_with_its_histor
     assert result.refused and result.retried
     assert len(llm.calls) == 2 and llm.calls[0] == llm.calls[1]  # the retry reuses the prompt, history included
     assert "Earlier question: " + BRIDGE in llm.calls[1][1]["content"]
-    assert retriever.questions[1:] == [f"{BRIDGE} {FOLLOW_UP}"]  # the other division is checked on the same topic
+    assert retriever.questions[1:] == [f"{BRIDGE} {FOLLOW_UP}"] * 2  # the other divisions are checked on the same topic
 
 
 def test_an_uncited_answer_is_kept_not_retried():

@@ -1,0 +1,3 @@
+# Vercel deploys with Root Directory = hosted/. The division PDFs are only for the offline index
+# build (prototype.ingest); the function needs just hosted/index/, so never upload them.
+/documents
