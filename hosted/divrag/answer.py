@@ -365,9 +365,18 @@ def attach_sources(text: str, hits: List[Hit]) -> Tuple[str, List[Source]]:
     return text.strip(), sources
 
 
+# Up to this many documents, a refusal names them; beyond it, it counts them. With the
+# 50-document stress test (DAR-621) a division has up to 20, and listing every title made a
+# refusal about 2,000 characters long; the page's document panel lists them anyway.
+_REFUSAL_TITLES = 3
+
+
 def refusal_text(target: Division, suggest: List[str]) -> str:
-    titles = "; ".join(d.title for d in target.documents)
-    text = f"I couldn't find an answer to that in the {target.name} documents ({titles})."
+    if len(target.documents) <= _REFUSAL_TITLES:
+        searched = "; ".join(d.title for d in target.documents)
+    else:
+        searched = f"{len(target.documents)} documents"
+    text = f"I couldn't find an answer to that in the {target.name} documents ({searched})."
     if len(suggest) == 1:
         name = BY_ID[suggest[0]].name
         text += f" The {name} documents look more relevant: try asking {name} instead."
