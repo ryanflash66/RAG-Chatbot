@@ -32,40 +32,34 @@
 }
 .steps-head[aria-expanded="false"] .steps-chevron { transform: rotate(-45deg); margin-bottom: 0; }
 
-/* The timeline: an icon per step, joined by a dotted line. Three states, as on the old
-   page (DAR-636, after the Oct 22 demo found two kinds of circle confusing): a gray
-   hollow circle not started, a solid circle in progress, a check mark done. */
+/* The timeline: an icon per step (StepIcon), joined by a dotted line. Three states
+   (DAR-636, after the Oct 22 demo found two kinds of circle confusing), drawn like a
+   task list: a dashed circle not started, a spinner in progress, a filled check done,
+   whose label then fades to gray. */
 .steps-list { list-style: none; margin: 2px 0 0; padding: 0 0 0 2px; font-size: .88rem; }
 .step { position: relative; display: flex; gap: 12px; padding: 2px 0 8px 22px; color: var(--muted-foreground); }
 .step:last-child { padding-bottom: 2px; }
-.step::before {
-  content: ""; position: absolute; left: 3px; top: .5em; width: 10px; height: 10px;
-  border-radius: 50%; border: 2px solid var(--muted-foreground); background: var(--background); box-sizing: border-box;
-}
+.step-icon { position: absolute; left: 0; top: .2em; width: 15px; height: 15px; color: var(--muted-foreground); }
+/* The line runs from under one icon (centre x = 7.5px) to the next. */
 .step::after {
-  content: ""; position: absolute; left: 7px; top: calc(.5em + 13px); bottom: -2px;
+  content: ""; position: absolute; left: 7px; top: calc(.2em + 18px); bottom: 1px;
   border-left: 2px dotted var(--muted-foreground); opacity: .5;
 }
 .step:last-child::after { display: none; }
-.step[data-status="running"] { color: var(--foreground); }
-.step[data-status="running"]::before {
-  border-color: var(--primary); background: var(--primary); animation: steps-pulse 1.2s ease-in-out infinite;
+.step[data-status="pending"], .step[data-status="running"] { color: var(--foreground); }
+.step[data-status="running"] .step-icon { animation: steps-spin 1s linear infinite; }
+.step-icon-done {
+  display: grid; place-items: center; border-radius: 50%;
+  background: var(--muted-foreground); color: var(--background);
 }
-/* The check is drawn like the header's: two borders of a narrow box, turned 45 degrees,
-   centred where the circle was (left 3px + 10px wide: x = 8px). */
-.step[data-status="done"]::before {
-  left: 5px; top: calc(.5em - 2px); width: 6px; height: 11px; border-radius: 0;
-  border: 0; border-right: 2px solid var(--primary); border-bottom: 2px solid var(--primary);
-  background: transparent; transform: rotate(45deg);
-}
-.step[data-status="failed"]::before { border-color: var(--destructive); background: var(--background); }
+.step-icon-done svg { width: 10px; height: 10px; }
+.step[data-status="failed"] .step-icon { color: var(--destructive); }
 /* Stopped by the visitor: the step it was on didn't fail, it was left. */
-[data-state="stopped"] .step[data-status="failed"]::before { border-color: var(--muted-foreground); }
-@keyframes steps-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 18%, transparent); } }
+[data-state="stopped"] .step[data-status="failed"] .step-icon { color: var(--muted-foreground); }
 .step-label { flex: 1; min-width: 0; }
 .step-ms { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
-  .steps-icon, .step[data-status="running"]::before { animation: none; }
+  .steps-icon, .step[data-status="running"] .step-icon { animation: none; }
   .steps-chevron { transition: none; }
 }

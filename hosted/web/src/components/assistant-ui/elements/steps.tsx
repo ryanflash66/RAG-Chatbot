@@ -1,6 +1,7 @@
 import "./steps.css";
 
 import { type DataMessagePartComponent, useAuiState } from "@assistant-ui/react";
+import { CheckIcon, CircleDashedIcon, CircleXIcon, LoaderCircleIcon } from "lucide-react";
 import { useId, useState } from "react";
 import type { AnswerMetadata, StepEvent } from "@/types";
 import { modelName, seconds } from "./format";
@@ -16,6 +17,22 @@ const TITLES: Record<BlockState, string> = {
 
 // Read before each label, as the icons alone say nothing to a screen reader (as public/js/steps.js).
 const STATUS_TEXT = { pending: "Not started: ", running: "In progress: ", done: "Done: ", failed: "Stopped: " };
+
+type StepStatus = keyof typeof STATUS_TEXT;
+
+// The icons of a task list (asked for on Oct 28, after the first React steps used CSS
+// circles): a dashed circle not started, a spinner in progress, a filled check done.
+function StepIcon({ status }: { status: StepStatus }) {
+  if (status === "done") {
+    return (
+      <span className="step-icon step-icon-done" aria-hidden="true">
+        <CheckIcon strokeWidth={3.5} />
+      </span>
+    );
+  }
+  const Icon = status === "running" ? LoaderCircleIcon : status === "failed" ? CircleXIcon : CircleDashedIcon;
+  return <Icon className="step-icon" aria-hidden="true" />;
+}
 
 /**
  * The `steps` data part: "Working…" while the answer is on its way, then "Done in N s"
@@ -77,7 +94,7 @@ export const StepsPart: DataMessagePartComponent<StepEvent[]> = ({ data }) => {
       <ol className="steps-list" id={listId} hidden={!open}>
         {steps.map((step) => {
           // A pending step hasn't started, so it is never shown running or failed.
-          const shown =
+          const shown: StepStatus =
             step.status === "done"
               ? "done"
               : step.status === "pending"
@@ -87,6 +104,7 @@ export const StepsPart: DataMessagePartComponent<StepEvent[]> = ({ data }) => {
                   : "running";
           return (
             <li key={step.id} className="step" data-step={step.id} data-status={shown}>
+              <StepIcon status={shown} />
               <span className="sr-only">{STATUS_TEXT[shown]}</span>
               <span className="step-label">{step.label ?? step.id}</span>
               <span className="step-ms">{shown === "done" ? seconds(step.ms ?? 0) : ""}</span>
