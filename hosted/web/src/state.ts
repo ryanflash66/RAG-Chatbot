@@ -48,7 +48,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({ divisions, maxChars, asker, target: asker ? otherThan(divisions, asker) : null });
   },
   // Asking your own division is allowed, but picking it as "I work in" moves "Ask" to the
-  // other one, as the old page did, since the demo is about another division's manuals.
+  // first other one, as the old page did, since the demo is about another division's manuals.
   setAsker: (id) => {
     const { divisions, target } = get();
     set({ asker: id, target: target === id ? otherThan(divisions, id) : target });

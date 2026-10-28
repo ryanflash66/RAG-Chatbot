@@ -182,7 +182,7 @@ Answers aren't fully deterministic, and on a shared Ollama the first question in
 
 ## Hosted demo: cross-division Q&A (`hosted/`)
 
-A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Control or Utilities) asks a question and gets an answer drawn only from the *other* division's manual, citing the document, PDF page and section, with a link to the public PDF at that page. When the manual doesn't cover the question, the demo says so and shows no sources.
+A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Control, Utilities, or Transportation Mobility and Safety) asks a question and gets an answer drawn only from *another* division's documents, citing the document, PDF page and section, with a link to the public PDF at that page. When the manual doesn't cover the question, the demo says so and shows no sources.
 
 `hosted/` is self-contained so it can be deployed on its own (Vercel Root Directory = `hosted`):
 
@@ -194,9 +194,10 @@ A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Contr
 | `hosted/index/` | the committed index: `chunks.json` (each chunk tagged with its `division`) and float16 `vectors.npy` |
 | `hosted/requirements.txt` | runtime dependencies only: fastembed, numpy, fastapi, httpx |
 | `hosted/scripts/fetch_models.py` | build step: downloads the two ONNX models (pinned commits, about 90 MB) into `hosted/models/` (gitignored) |
+| `hosted/scripts/fetch_documents.py` | offline: downloads each division's PDFs into `hosted/documents/<division>/` (gitignored, never deployed) for the index build |
 | `hosted/vercel.json` | Vercel settings: the build command above and a 60 s function limit |
 
-Retrieval searches only the asked division's chunks (BAAI/bge-small-en-v1.5 via fastembed). It reranks the top 20 with the ONNX cross-encoder `Xenova/ms-marco-MiniLM-L-6-v2` (its int8 `onnx/model_quantized.onnx`, which ranked the 32 test questions the same as the fp32 file in half the time), one passage per model call (in one batch every passage was padded to the longest, and reranking took 2.2 times as long locally and 1.5 times as long on Vercel), and keeps 5, plus the next chunk of the top 2 hits. Twenty stays because two of those questions need the 14th vector hit. A refusal's "ask the other division instead" check reranks only 10 of that division's hits. Consecutive chunks are merged so that a rule running across a page break reaches the model whole. `python -m prototype.rerank_check` checks the reranking against 83 questions with known answer pages (`eval/retrieval_pages.json` and the table questions), for several input lengths and batch sizes: reading only 384 of the 512 tokens lost 7 answers that sit late in a long chunk. The answer comes from a free OpenRouter model (`nvidia/nemotron-3-ultra-550b-a55b:free`, falling back to `nvidia/nemotron-3-super-120b-a12b:free` and `google/gemma-4-31b-it:free`). Paid models are refused at startup.
+Retrieval searches only the asked division's chunks (BAAI/bge-small-en-v1.5 via fastembed). It reranks the top 20 with the ONNX cross-encoder `Xenova/ms-marco-MiniLM-L-6-v2` (its int8 `onnx/model_quantized.onnx`, which ranked the 32 test questions the same as the fp32 file in half the time), one passage per model call (in one batch every passage was padded to the longest, and reranking took 2.2 times as long locally and 1.5 times as long on Vercel), and keeps 5, plus the next chunk of the top 2 hits. Twenty stays because two of those questions need the 14th vector hit. A refusal's "ask another division instead" check reranks only 10 of each other division's hits. Consecutive chunks are merged so that a rule running across a page break reaches the model whole. `python -m prototype.rerank_check` checks the reranking against 83 questions with known answer pages (`eval/retrieval_pages.json` and the table questions), for several input lengths and batch sizes: reading only 384 of the 512 tokens lost 7 answers that sit late in a long chunk. The answer comes from a free OpenRouter model (`nvidia/nemotron-3-ultra-550b-a55b:free`, falling back to `nvidia/nemotron-3-super-120b-a12b:free` and `google/gemma-4-31b-it:free`). Paid models are refused at startup.
 
 Every `/api/ask` reply has `timing_ms`, the milliseconds spent in each step: `model_load` (only on a cold instance), `embed`, `search`, `rerank`, `llm`, `citations`, `retry` and `suggest` (0 when they didn't run), plus `retrieval` and `total`. `model` names the model that wrote the reply and `first_model` the one that answered the first call (OpenRouter may have fallen back from the primary to a backup); they differ when a retry produced the answer. `model_load` includes a warm-up that runs each model once on a few words. The page calls `POST /api/warm` when it opens, when a division is picked and when the visitor starts typing; it answers once the models are loaded, so the first question usually finds them ready. The server logs one `ask ...` line per question with the same numbers. The steps are listed in `hosted/divrag/timing.py`.
 
@@ -230,20 +231,29 @@ Live demo: https://ncdot-division-assistant.vercel.app (Vercel project `ncdot-di
 - **Environment variables:** `OPENROUTER_API_KEY` (secret, Production and Preview). The other settings above are optional.
 - **Models:** the Build Command (`hosted/vercel.json`) runs `scripts/fetch_models.py`, so the models ship in the function bundle at `/var/task/models` and a cold start never downloads them. The bundle is about 280 MB (models 90 MB, dependencies 185 MB), under Python's 500 MB limit. Above 250 MB, Vercel installs the Python dependencies when an instance starts (about 2 s).
 - **Documents** are indexed ahead of time, outside Vercel (see below), and `hosted/index/` is committed.
-- `.vercelignore` limits a `vercel deploy` from the repo root to `hosted/`, so `.env` and the PDFs are never uploaded.
+- `.vercelignore` limits a `vercel deploy` from the repo root to `hosted/`, so `.env` and the PDFs are never uploaded; it and `hosted/.vercelignore` also leave out `hosted/documents/`.
 
 Settings (environment variables, all optional except the key): `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS` (`:free` models only), `LLM_TEMPERATURE` (0.1), `LLM_REASONING` (`off`), `RERANK` (`on`/`off`), `RERANK_CANDIDATES` (20), `TOP_K` (5), `MODEL_CACHE_DIR`, `ONNX_THREADS` (onnxruntime threads per model; unset uses its default, which measured faster on Vercel than 1), `INDEX_DIR`, `MAX_QUESTION_CHARS` (500), `RATE_LIMIT_PER_MINUTE` (8 per client IP per instance), `REQUEST_BUDGET_SECONDS` (55; total time per question, under Vercel's 60 s), `RETRY_ON_REFUSAL` (`on`: when the model refuses although the best reranker score is at least `RETRY_MIN_SCORE`, 1.0, ask once more with the next model, if `RETRY_MIN_SECONDS`, 15, of the budget remain), `ALLOWED_ORIGINS` (none: same-origin only). See `hosted/divrag/config.py`.
 
 ### Rebuilding the index
 
-The index is built offline by `prototype/` (it needs the full `requirements.txt` for the PDF reader and chunker) from the PDFs in `data/`, which are not committed. Their public URLs are in `hosted/divrag/divisions.py`.
+There is no upload in the app (Vercel's file system is read-only, and the PDF reader is too heavy for the bundle): the team adds documents offline and commits the rebuilt index. The index is built by `prototype/` (it needs the full `requirements.txt` for the PDF reader and chunker) from the PDFs in `hosted/documents/<division id>/`, which are not committed. `hosted/divrag/divisions.py` lists every division's documents with their public URLs, and `docs/source-documents/SOURCES.md` repeats that list with each PDF's page count and fetch date (a test checks the two agree).
 
-```bash
-.venv\Scripts\python -m prototype.ingest                 # all divisions -> hosted/index/
-.venv\Scripts\python -m prototype.search --division utilities "Who pays for a detour?"
-```
+To add a document or a division:
 
-Chunks are 512 tokens, not the chat app's 1024, because bge-small and the reranker read only the first 512 tokens of a passage. `--compare` checks fastembed's vectors against the sentence-transformers ones the chat app uses. To add a division, add a row to `DIVISIONS` in `hosted/divrag/divisions.py`, put its PDF in `data/`, and rebuild.
+1. Add the document to its division's row in `DIVISIONS` (`hosted/divrag/divisions.py`), or add a new `Division` row: `file` (unique across divisions), `title`, and the public `url` that citations link to.
+2. Add its row to `docs/source-documents/SOURCES.md` (`fetch_documents.py --check-sources` prints a ready-to-paste row).
+3. Download the PDFs and rebuild the index:
+
+   ```bash
+   .venv\Scripts\python hosted/scripts/fetch_documents.py   # every listed PDF -> hosted/documents/<division>/ (skips ones already there)
+   .venv\Scripts\python -m prototype.ingest                 # all divisions -> hosted/index/ (prints each document's chunks and last page)
+   .venv\Scripts\python -m prototype.search --division tmsd "How many TODS panels can go on one intersection approach?"
+   ```
+
+4. Fill in the page count in `SOURCES.md`, run the tests, and commit `hosted/index/` with the two lists. Pushing to `main` redeploys with the new index.
+
+Always run `prototype.ingest` without `--division` for the committed index: it rewrites the whole index with only the divisions it built. A PDF still in `data/` (where older checkouts kept them) is used when it isn't in its division's folder. Chunks are 512 tokens, not the chat app's 1024, because bge-small and the reranker read only the first 512 tokens of a passage. `--compare` checks fastembed's vectors against the sentence-transformers ones the chat app uses.
 
 ## License
 

@@ -3,7 +3,9 @@
     py -m prototype.ingest [--division ID ...] [--out hosted/index] [--compare]
 
 The divisions and their documents come from hosted/divrag/divisions.py; each
-document is read from DATA_DIR (default data/) by its `file` name. Documents are
+document is read from hosted/documents/<division id>/<file> (where
+hosted/scripts/fetch_documents.py downloads it), or from DATA_DIR (default
+data/) when it isn't there, as older checkouts kept every PDF in data/. Documents are
 read and chunked as the Chainlit app does (rag.loader's PDF-to-Markdown reader,
 rag.tables' table-aware splitter) but into 512-token chunks, tagged with their division and the numbered section heading in
 effect, embedded with the hosted app's embedder and saved as one index
@@ -27,7 +29,7 @@ import numpy as np
 from dotenv import load_dotenv
 
 from prototype import HOSTED_DIR  # noqa: F401  (puts hosted/ on sys.path)
-from divrag.divisions import BY_ID, DIVISIONS, Division
+from divrag.divisions import BY_ID, DIVISIONS, DOCUMENTS_DIR, Division, Document
 from divrag.embedder import Embedder
 from divrag.index_file import IndexFile
 from rag import loader
@@ -85,12 +87,31 @@ def _page(metadata: Dict) -> Optional[int]:
     return int(label) if label.isdigit() else None
 
 
-def build_division(config: AppConfig, division: Division, chunk_size: int, chunk_overlap: int) -> List[Dict]:
-    files = [config.data_dir / document.file for document in division.documents]
-    missing = [str(f) for f in files if not f.is_file()]
+def document_root(config: AppConfig, division: Division, document: Document,
+                  documents_dir: Path = DOCUMENTS_DIR) -> Optional[Path]:
+    """The folder a document is read from: its division's folder, else DATA_DIR, else None.
+
+    The document's `file` is relative to that folder, so a chunk's `source` is the
+    same file name whichever folder it came from (divisions.document_for matches on it).
+    """
+    for root in (documents_dir / division.id, config.data_dir):
+        if (root / document.file).is_file():
+            return root
+    return None
+
+
+def build_division(config: AppConfig, division: Division, chunk_size: int, chunk_overlap: int,
+                   documents_dir: Path = DOCUMENTS_DIR) -> List[Dict]:
+    roots = {d.file: document_root(config, division, d, documents_dir) for d in division.documents}
+    missing = [file for file, root in roots.items() if root is None]
     if missing:
-        raise SystemExit(f"Division {division.id}: missing {missing} (download them from the URLs in divisions.py)")
-    documents = loader.load(config.data_dir, only=files)
+        raise SystemExit(
+            f"Division {division.id}: missing {missing} in {documents_dir / division.id} or {config.data_dir} "
+            f"(run `python hosted/scripts/fetch_documents.py --division {division.id}`)"
+        )
+    documents = []
+    for root in dict.fromkeys(roots.values()):
+        documents += loader.load(root, only=[root / file for file, r in roots.items() if r == root])
     splitter = TableAwareSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     nodes = [n for n in splitter.get_nodes_from_documents(documents) if n.get_content().strip()]
     chunks: List[Dict] = []
@@ -115,6 +136,10 @@ def build(config: AppConfig, divisions: List[Division], embedder: Embedder,
         started = time.perf_counter()
         division_chunks = build_division(config, division, chunk_size, chunk_overlap)
         print(f"{division.id}: {len(division_chunks)} chunks ({time.perf_counter() - started:.0f}s to read and split)")
+        # The last page of each document, for its "Pages" column in docs/source-documents/SOURCES.md.
+        for source in dict.fromkeys(c["source"] for c in division_chunks):
+            of_source = [c for c in division_chunks if c["source"] == source]
+            print(f"  {source}: {len(of_source)} chunks, last page {max(c['page'] or 0 for c in of_source)}")
         chunks += division_chunks
     vectors = embedder.passages(chunk["text"] for chunk in chunks)
     return IndexFile(embedder.model_name, chunks, vectors)

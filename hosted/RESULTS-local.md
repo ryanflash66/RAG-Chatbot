@@ -68,3 +68,17 @@ Latency (server time, models already loaded): median 2.6 s, range 1.7-8.3 s. Ret
 4. I tried a prompt rule against assuming conditions the question didn't state, then reverted it: in that run X1 still assumed a blanket agreement, and B4 refused 2 of 4 times.
 
 Answers vary between runs: in earlier runs X1 sometimes assumed the crossing was under a blanket agreement (so no notice needed).
+
+## Third division: Transportation Mobility and Safety (DAR-622, 2026-10-27)
+
+TMSD's two documents (the TODS Procedures Manual and the Guidelines for Investigation of Fatal Crashes) were added with the offline workflow: rows in `divisions.py` and `docs/source-documents/SOURCES.md`, `fetch_documents.py`, then `prototype.ingest`. The index went from 758 to 839 chunks (TMSD 81: TODS 74, fatal crash guidelines 7); the 758 Work Zone and Utilities chunks and their vectors are unchanged. Expected pages were checked against the PDFs (physical pages; the TODS manual's printed page numbers are 3 lower).
+
+The answer step could not run: the OpenRouter key in the local `.env` was rejected (`401 User not found`), so the page showed "The demo's AI service isn't configured correctly" after retrieval. The table records retrieval (the 5 passages the model would get, from `prototype.search --division tmsd` and the app's own search step); the answer and cited-page columns still need a run with a working key.
+
+| # | Question | Answer (shortened) | Top passages (page, reranker score) | Expected | Correct? | Time |
+|---|---|---|---|---|---|---|
+| T1 | How many TODS panels can go on one intersection approach? | not run (401) | p. 7 (7.76), p. 25 (4.39), p. 27 (2.70) | At most six panels per approach, one business each; three if there is room for only one assembly (G.S. 136-140.19(5)); TODS manual V.A, PDF p. 7 | Retrieval yes: the answer page ranks first | retrieval 0.27 s |
+| T2 | What fees does an attraction pay for a TODS sign? | not run (401) | p. 9 (5.72), p. 27 (5.68), p. 8 (5.54) | $200 initial non-refundable fee per contract (p. 8); $200 per replacement panel and a $200 annual fee per contract, renewed July 1 (p. 9) | Retrieval yes: both pages in the top 3 | retrieval 0.27 s |
+| T3 | How long does a regional office have to complete a fatal crash investigation? | not run (401) | p. 4 (3.53), p. 5 (2.93), p. 2 (2.39) | 60 calendar days (45 business days) from step 4 of the Workflow Tracker; RTE may waive; fatal crash guidelines, PDF p. 5 | Retrieval yes: p. 5 is second, and p. 4's next chunk is added too | retrieval 0.26 s |
+
+"How far from the attraction can a TODS sign be placed?" (five miles, PDF p. 6) was dropped as an example question: its answer page ranked only 5th, behind the statute and form pages. "How long does an attraction have to change its operation to qualify for TODS?" (30 days, p. 8, score 7.56) replaced it.
