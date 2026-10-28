@@ -8,7 +8,11 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { DocsPanel } from "@/panels/DocsPanel";
 import { SourcesPanel } from "@/panels/SourcesPanel";
 import { answerAdapter } from "@/runtime/adapter";
+import { load, save } from "@/runtime/saved";
 import { useApp } from "@/state";
+
+// Read once, before the first render: the runtime takes it as its initial messages.
+const saved = load();
 
 // The same breakpoint as the old page (public/css/base.css): narrower than this, the
 // documents and sources panels become drawers over the chat.
@@ -26,16 +30,42 @@ function useMedia(query: string): boolean {
 }
 
 export default function App() {
-  const runtime = useLocalRuntime(answerAdapter);
+  const runtime = useLocalRuntime(answerAdapter, { initialMessages: saved.messages });
   const wide = useMedia(WIDE);
-  const { drawer, setDrawer, setDivisions } = useApp();
+  const { drawer, setDrawer, setDivisions, setAsker, setTarget } = useApp();
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     fetchDivisions()
-      .then((reply) => setDivisions(reply.divisions, reply.max_question_chars))
+      .then((reply) => {
+        setDivisions(reply.divisions, reply.max_question_chars);
+        // Back to the restored conversation's divisions, so a follow-up after a reload
+        // goes to the same documents with its history.
+        const known = (id: string | null) => !!id && reply.divisions.some((d) => d.id === id);
+        if (saved.messages.length && known(saved.asker) && known(saved.target)) {
+          setAsker(saved.asker!);
+          setTarget(saved.target!);
+        }
+      })
       .catch(() => setLoadError(true));
-  }, [setDivisions]);
+  }, [setDivisions, setAsker, setTarget]);
+
+  // Saved after every change of the thread or of the divisions; a running answer is
+  // saved as interrupted, so a reload mid-answer brings back Try again.
+  useEffect(() => {
+    const store = () => {
+      const { asker, target } = useApp.getState();
+      save({ messages: runtime.thread.getState().messages, asker, target });
+    };
+    const unsubscribeThread = runtime.thread.subscribe(store);
+    const unsubscribeApp = useApp.subscribe((s, before) => {
+      if (s.asker !== before.asker || s.target !== before.target) store();
+    });
+    return () => {
+      unsubscribeThread();
+      unsubscribeApp();
+    };
+  }, [runtime]);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -96,9 +126,13 @@ export default function App() {
 
 function Panel(props: { label: string; side: "left" | "right"; children: ReactNode }) {
   return (
+    // relative: the links' visually hidden "(opens in a new tab)" text is absolutely
+    // positioned, and without a positioned panel it escaped the panel's scroll box and
+    // made the whole page about 7,000 px tall with 58 documents (DAR-621), so the page
+    // itself scrolled under the header when an answer arrived.
     <aside
       aria-label={props.label}
-      className={`min-h-0 overflow-y-auto bg-card p-4 ${props.side === "left" ? "border-r" : "border-l"}`}
+      className={`relative min-h-0 overflow-y-auto bg-card p-4 ${props.side === "left" ? "border-r" : "border-l"}`}
     >
       <h2 className="mb-3 text-sm font-semibold">{props.label}</h2>
       {props.children}

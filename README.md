@@ -201,13 +201,14 @@ A free-tier web demo for NCDOT: someone in one division (Work Zone Traffic Contr
 | Path | What it is |
 |---|---|
 | `hosted/index.py` | FastAPI app (`app`): `GET /` page, `GET /api/divisions`, `POST /api/warm`, `POST /api/ask`, `POST /api/ask/stream`, `GET /api/health` |
-| `hosted/public/` | the page, no build step: `index.html` (three panels: documents, chat, sources; the side panels are drawers on phones), `css/` and `js/` (plain scripts sharing `window.App`, one file per panel) |
+| `hosted/web/` | the page: React with [assistant-ui](https://www.assistant-ui.com/) (Vite, TypeScript, Tailwind v4, shadcn/ui). Three panels: documents, chat, sources; the side panels are drawers on phones |
+| `hosted/public/` | the built page (`npm run build` in `hosted/web/`), gitignored; Vercel builds it on every deploy |
 | `hosted/divrag/` | runtime: `divisions.py` (one row per division), index search with a division filter, fastembed embedder and reranker, OpenRouter client, prompt and citations |
 | `hosted/index/` | the committed index: `chunks.json` (each chunk tagged with its `division`) and float16 `vectors.npy` |
 | `hosted/requirements.txt` | runtime dependencies only: fastembed, numpy, fastapi, httpx |
 | `hosted/scripts/fetch_models.py` | build step: downloads the two ONNX models (pinned commits, about 90 MB) into `hosted/models/` (gitignored) |
 | `hosted/scripts/fetch_documents.py` | offline: downloads each division's PDFs into `hosted/documents/<division>/` (gitignored, never deployed) for the index build |
-| `hosted/vercel.json` | Vercel settings: the build command above and a 60 s function limit |
+| `hosted/vercel.json` | Vercel settings: the build command (the page, then the models), a 60 s function limit, the security headers, and `/new` redirected to `/` |
 
 Retrieval searches only the asked division's chunks (BAAI/bge-small-en-v1.5 via fastembed). It reranks the top 40 with the ONNX cross-encoder `Xenova/ms-marco-MiniLM-L-6-v2` (its int8 `onnx/model_quantized.onnx`, which ranked the 32 test questions the same as the fp32 file in half the time), one passage per model call (in one batch every passage was padded to the longest, and reranking took 2.2 times as long locally and 1.5 times as long on Vercel), and keeps 5, plus the next chunk of the top 2 hits. It was 20 until the 50-document stress test (DAR-621): with about 20 documents per division, those questions found their page in the top 5 for 69 of 83 instead of 80, partly because the right chunk fell below the 20th vector hit (the UAM's lane-closure rule came 22nd), and 40 brings it to 75. A refusal's "ask another division instead" check reranks only 10 of each other division's hits. Consecutive chunks are merged so that a rule running across a page break reaches the model whole. `python -m prototype.rerank_check` checks the reranking against 83 questions with known answer pages (`eval/retrieval_pages.json` and the table questions), for several input lengths and batch sizes: reading only 384 of the 512 tokens lost 7 answers that sit late in a long chunk. The answer comes from a free OpenRouter model (`nvidia/nemotron-3-ultra-550b-a55b:free`, falling back to `nvidia/nemotron-3.5-super-vl:free` and `google/gemma-4-31b-it:free`). Paid models are refused at startup.
 
@@ -222,18 +223,20 @@ Run it locally (needs `OPENROUTER_API_KEY` in `.env`):
 .venv\Scripts\python -m uvicorn index:app --app-dir hosted --env-file .env --port 8000
 ```
 
-Then open http://localhost:8000. The first question downloads the two ONNX models (about 90 MB) into the system temp directory, unless `hosted/models/` exists (`.venv\Scripts\python hosted/scripts/fetch_models.py` fills it) or `MODEL_CACHE_DIR` points at a copy. `hosted/RESULTS-local.md` has the results of real questions against the local app.
-
-### The React page (`/new`, in progress)
-
-The page is moving to React with [assistant-ui](https://www.assistant-ui.com/) (DAR-630 to DAR-634). Until the swap, the new page lives in `hosted/web/` (Vite, React, TypeScript, Tailwind v4, shadcn/ui) and is served at `/new/`, beside the current page at `/`. It's built into `hosted/public/new/`, which is gitignored; Vercel builds it on every deploy.
+Build the page once (and after changing `hosted/web/`), then open http://localhost:8000:
 
 ```bash
 cd hosted/web
 npm ci
-npm run build    # writes hosted/public/new/; then open http://localhost:8000/new/ on the running app
-npm run dev      # or a live-reloading copy on http://localhost:5173/new/, calling the app on :8000 for /api
+npm run build    # writes hosted/public/
+npm run dev      # or a live-reloading copy on http://localhost:5173, calling the app on :8000 for /api
 ```
+
+The first question downloads the two ONNX models (about 90 MB) into the system temp directory, unless `hosted/models/` exists (`.venv\Scripts\python hosted/scripts/fetch_models.py` fills it) or `MODEL_CACHE_DIR` points at a copy. `hosted/RESULTS-local.md` has the results of real questions against the local app.
+
+### The page
+
+The page was rewritten in React with assistant-ui (DAR-630 to DAR-634) and replaced the plain-script page at `/` once it matched it (DAR-634): the document filter with passage counts, live steps (not started, in progress, done) and streamed text, citations that open the passage in the sources panel, follow-up questions, "Ask … instead" after a refusal, "No source cited", Try again, New chat, the conversation kept for a reload (sessionStorage, per tab), and drawers on phones. `/new`, where it was built, redirects to `/`. `cd hosted/web && npx vitest run` runs its tests.
 
 ### Deploying on Vercel
 

@@ -65,4 +65,6 @@ export type AnswerMetadata = {
   payload?: AnswerPayload;
   steps?: StepEvent[];
   targetId?: string;
+  /** The asker's division when the question was sent, for "for a colleague in …". */
+  askerId?: string;
 };

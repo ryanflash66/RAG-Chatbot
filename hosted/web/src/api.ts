@@ -1,7 +1,7 @@
 import type { DivisionsReply } from "@/types";
 
-// Paths are relative to the page, so they work at /new/ now and at / after the swap (DAR-634).
-const API = new URL("../api/", document.baseURI).pathname;
+// Relative to the page, which is served at / (it was at /new/ until DAR-634).
+const API = new URL("api/", document.baseURI).pathname;
 
 export async function fetchDivisions(): Promise<DivisionsReply> {
   const res = await fetch(API + "divisions");

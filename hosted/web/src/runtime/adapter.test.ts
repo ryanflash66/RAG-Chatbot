@@ -61,7 +61,7 @@ describe("answerAdapter", () => {
     });
     // One yield before the first event, then one per event.
     expect(results).toHaveLength(4);
-    expect(results[0].metadata?.custom).toEqual({ steps: [], targetId: "wztc" });
+    expect(results[0].metadata?.custom).toEqual({ steps: [], targetId: "wztc", askerId: "wztc" });
     expect(results[2].content?.find((p) => p.type === "text")).toEqual({ type: "text", text: "Flag" });
     const last = results[3];
     expect(last.content?.find((p) => p.type === "text")).toEqual({ type: "text", text: done.answer });

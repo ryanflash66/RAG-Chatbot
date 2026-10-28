@@ -1,6 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "cd web && npm ci && npm run build && cd .. && python3 scripts/fetch_models.py",
+  "redirects": [
+    { "source": "/new", "destination": "/", "permanent": false },
+    { "source": "/new/(.*)", "destination": "/", "permanent": false }
+  ],
   "functions": {
     "index.py": {
       "maxDuration": 60,
